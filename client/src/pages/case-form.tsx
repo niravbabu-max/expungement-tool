@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { analyzeEligibility, analyzeUnit, checkAutoExpungement, lookupStatute, type EligibilityResult } from "@/lib/eligibility";
+import { analyzeEligibility, analyzeUnit, checkAutoExpungement, lookupStatute, buildMissingInfoList, type EligibilityResult } from "@/lib/eligibility";
 import type { UnitRuleResult } from "@/lib/eligibility";
 import { MD_COUNTIES, DISPOSITION_OPTIONS } from "@/lib/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -217,6 +217,10 @@ export default function CaseForm() {
 
   const handleAnalyze = () => {
     const result = analyzeEligibility(form);
+    // Attach missing info checklist for needs_review results
+    if (result.status === "needs_review") {
+      result.missingInfo = buildMissingInfoList(form);
+    }
     setEligResult(result);
     const updated = {
       ...form,
@@ -536,6 +540,21 @@ export default function CaseForm() {
                       <p className="mt-3 font-semibold text-sm">
                         Eligible Date: {new Date(eligResult.eligibleDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
                       </p>
+                    )}
+
+                    {eligResult.status === "needs_review" && eligResult.missingInfo && eligResult.missingInfo.length > 0 && (
+                      <div className="mt-4 bg-white rounded p-3 border border-amber-300">
+                        <p className="font-semibold text-sm text-amber-800 mb-2">Information Needed to Complete Determination:</p>
+                        <ul className="text-sm space-y-1">
+                          {eligResult.missingInfo.map((item, i) => (
+                            <li key={i} className="flex items-start gap-2">
+                              <span className="text-amber-500 mt-0.5">○</span>
+                              <span>{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="text-xs text-muted-foreground mt-2">Ask the client for this information or look it up on Case Search. Then update the Charge & Disposition tab and re-run the analysis.</p>
+                      </div>
                     )}
                   </div>
 
