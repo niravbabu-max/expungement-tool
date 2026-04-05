@@ -111,6 +111,11 @@ export default function CaseForm() {
         if (c.dispositionDate) updates.dispositionDate = c.dispositionDate;
       }
       if (data.arrestDate) updates.incidentDescription = `Arrest date: ${data.arrestDate}`;
+      // Auto-fill probation discharge date from PBJ end date
+      if (data.probationEndDate) {
+        updates.probationDischarged = 'yes';
+        updates.probationDischargeDate = data.probationEndDate;
+      }
       setForm(f => ({ ...f, ...updates }));
       setLookupSuccess(true);
       toast({ title: "Case data loaded from Case Search" });
