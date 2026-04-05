@@ -15,8 +15,133 @@ const FIRM_CITY_STATE_ZIP = "Baltimore, MD 21218";
 const ATTORNEY_PHONE = "301-971-4880";
 const ATTORNEY_EMAIL = "nirav@innovatelegalgroup.com";
 
+// Maryland Court Directory — all 24 jurisdictions (23 counties + Baltimore City)
+const COURT_DIRECTORY: Record<string, { district: { address: string; phone: string }; circuit: { address: string; phone: string } }> = {
+  "Allegany": {
+    district: { address: "3 Pershing St, 2nd Floor, Cumberland, MD 21502", phone: "301-722-0600" },
+    circuit: { address: "30 Washington St, Cumberland, MD 21502", phone: "301-777-5922" },
+  },
+  "Anne Arundel": {
+    district: { address: "251 Rowe Blvd, Annapolis, MD 21401", phone: "410-260-1370" },
+    circuit: { address: "8 Church Circle, Annapolis, MD 21401", phone: "410-222-1397" },
+  },
+  "Baltimore City": {
+    district: { address: "5800 Wabash Ave, Baltimore, MD 21215", phone: "410-878-8000" },
+    circuit: { address: "111 N Calvert St, Baltimore, MD 21202", phone: "410-333-3722" },
+  },
+  "Baltimore County": {
+    district: { address: "120 E Chesapeake Ave, Towson, MD 21286", phone: "410-512-2000" },
+    circuit: { address: "401 Bosley Ave, Towson, MD 21204", phone: "410-887-2601" },
+  },
+  "Calvert": {
+    district: { address: "200 Duke St, Prince Frederick, MD 20678", phone: "410-535-1600" },
+    circuit: { address: "175 Main St, Prince Frederick, MD 20678", phone: "410-535-1600" },
+  },
+  "Caroline": {
+    district: { address: "207 S Third St, Denton, MD 21629", phone: "410-819-4075" },
+    circuit: { address: "109 Market St, Denton, MD 21629", phone: "410-479-1811" },
+  },
+  "Carroll": {
+    district: { address: "101 N Court St, Westminster, MD 21157", phone: "410-871-3820" },
+    circuit: { address: "55 N Court St, Westminster, MD 21157", phone: "410-386-2020" },
+  },
+  "Cecil": {
+    district: { address: "170 E Main St, Elkton, MD 21921", phone: "410-996-1022" },
+    circuit: { address: "129 E Main St, Elkton, MD 21921", phone: "410-996-5370" },
+  },
+  "Charles": {
+    district: { address: "200 Charles St, La Plata, MD 20646", phone: "301-638-4300" },
+    circuit: { address: "200 Charles St, La Plata, MD 20646", phone: "301-932-3202" },
+  },
+  "Dorchester": {
+    district: { address: "310 Gay St, Cambridge, MD 21613", phone: "410-901-1460" },
+    circuit: { address: "206 High St, Cambridge, MD 21613", phone: "410-228-0481" },
+  },
+  "Frederick": {
+    district: { address: "100 W Patrick St, Frederick, MD 21701", phone: "301-600-1995" },
+    circuit: { address: "100 W Patrick St, Frederick, MD 21701", phone: "301-600-1976" },
+  },
+  "Garrett": {
+    district: { address: "205 S Third St, Oakland, MD 21550", phone: "301-334-8198" },
+    circuit: { address: "203 S Fourth St, Room 209, Oakland, MD 21550", phone: "301-334-1937" },
+  },
+  "Harford": {
+    district: { address: "2 S Bond St, Bel Air, MD 21014", phone: "410-836-4545" },
+    circuit: { address: "20 W Courtland St, Bel Air, MD 21014", phone: "410-638-3426" },
+  },
+  "Howard": {
+    district: { address: "3451 Courthouse Dr, Ellicott City, MD 21043", phone: "410-480-7700" },
+    circuit: { address: "8360 Court Ave, Ellicott City, MD 21043", phone: "410-313-2111" },
+  },
+  "Kent": {
+    district: { address: "103 N Cross St, Chestertown, MD 21620", phone: "410-810-2242" },
+    circuit: { address: "103 N Cross St, Chestertown, MD 21620", phone: "410-778-7460" },
+  },
+  "Montgomery": {
+    district: { address: "27 Courthouse Square, Rockville, MD 20850", phone: "301-563-8500" },
+    circuit: { address: "50 Maryland Ave, Rockville, MD 20850", phone: "240-777-9400" },
+  },
+  "Prince George's": {
+    district: { address: "14735 Main St, Suite 173B, Upper Marlboro, MD 20772", phone: "301-952-4080" },
+    circuit: { address: "14735 Main St, Upper Marlboro, MD 20772", phone: "301-952-3318" },
+  },
+  "Queen Anne's": {
+    district: { address: "120 Broadway, Centreville, MD 21617", phone: "410-819-4075" },
+    circuit: { address: "100 Courthouse Square, Centreville, MD 21617", phone: "410-758-1773" },
+  },
+  "St. Mary's": {
+    district: { address: "23110 Leonard Hall Dr, Leonardtown, MD 20650", phone: "301-475-4567" },
+    circuit: { address: "41605 Courthouse Dr, Leonardtown, MD 20650", phone: "301-475-7844" },
+  },
+  "Somerset": {
+    district: { address: "12155 Elm St, Suite C, Princess Anne, MD 21853", phone: "410-713-3550" },
+    circuit: { address: "30512 Prince William St, Princess Anne, MD 21853", phone: "410-845-4840" },
+  },
+  "Talbot": {
+    district: { address: "108 W Dover St, Easton, MD 21601", phone: "410-819-4075" },
+    circuit: { address: "11 N Washington St, Easton, MD 21601", phone: "410-822-2611" },
+  },
+  "Washington": {
+    district: { address: "36 W Antietam St, Hagerstown, MD 21740", phone: "301-791-3086" },
+    circuit: { address: "95 W Washington St, Hagerstown, MD 21740", phone: "301-733-8660" },
+  },
+  "Wicomico": {
+    district: { address: "201 Baptist St, Salisbury, MD 21801", phone: "410-713-3550" },
+    circuit: { address: "101 N Division St, Salisbury, MD 21801", phone: "410-543-6551" },
+  },
+  "Worcester": {
+    district: { address: "301 Commerce St, Snow Hill, MD 21863", phone: "410-632-5630" },
+    circuit: { address: "1 W Market St, Room 104, Snow Hill, MD 21863", phone: "410-632-5500" },
+  },
+};
+
+function getCourtInfo(county: string | null | undefined, courtType: string | null | undefined): { address: string; phone: string } {
+  if (!county) return { address: "", phone: "" };
+  const entry = COURT_DIRECTORY[county];
+  if (!entry) return { address: "", phone: "" };
+  return courtType?.toLowerCase() === "circuit" ? entry.circuit : entry.district;
+}
+
 function todayDate(): string {
   return new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+}
+
+/** Fill court header fields (address, phone) based on county */
+function fillCourtHeader(form: any, county: string | null | undefined, courtType: string | null | undefined, incidentLocation?: string | null) {
+  const court = getCourtInfo(county, courtType);
+  const trySet = (name: string, val: string) => { try { form.getTextField(name).setText(val); } catch {} };
+  
+  // "Located at" = the physical street address of the court from the directory
+  const courtAddr = court.address || "";
+  if (courtAddr) {
+    trySet("Located at", courtAddr);
+    trySet("Court Address", courtAddr);
+    trySet("Court's Address", courtAddr);
+  }
+  if (court.phone) {
+    trySet("Court's Telephone Number", court.phone);
+    trySet("Court Telephone", court.phone);
+  }
 }
 
 /** Fill attorney block on any form — tries every known field name variant */
@@ -145,6 +270,7 @@ async function fill072A(c: ExpungementCase): Promise<Uint8Array> {
   set("Defendant E-mail", c.defendantEmail || "");
 
   // Attorney block
+  fillCourtHeader(form, c.county, c.courtType, c.incidentLocation);
   fillAttorneyBlock(form);
 
   form.flatten();
@@ -198,6 +324,7 @@ async function fill072B(c: ExpungementCase): Promise<Uint8Array> {
   set("Email_2", c.defendantEmail || "");
 
   // Attorney block
+  fillCourtHeader(form, c.county, c.courtType, c.incidentLocation);
   fillAttorneyBlock(form);
 
   form.flatten();
@@ -253,6 +380,7 @@ async function fill072C(c: ExpungementCase): Promise<Uint8Array> {
   set("date of arrest, detention or confinement", fmtDate(c.dispositionDate));
 
   // Attorney block
+  fillCourtHeader(form, c.county, c.courtType, c.incidentLocation);
   fillAttorneyBlock(form);
 
   form.flatten();
@@ -296,6 +424,7 @@ async function fill072D(c: ExpungementCase): Promise<Uint8Array> {
   set("Defendant Email Address", c.defendantEmail || "");
 
   // Attorney block
+  fillCourtHeader(form, c.county, c.courtType, c.incidentLocation);
   fillAttorneyBlock(form);
 
   form.flatten();
@@ -325,6 +454,7 @@ async function fill078(c: ExpungementCase): Promise<Uint8Array> {
   set("Date of arrest, detention or confinement", fmtDate(c.dispositionDate));
 
   // Attorney block
+  fillCourtHeader(form, c.county, c.courtType, c.incidentLocation);
   fillAttorneyBlock(form);
 
   form.flatten();
