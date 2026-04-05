@@ -517,17 +517,27 @@ export default function CaseForm() {
                         </div>
                       </div>
                     </div>
-                  ) : (
+                  ) : form.unitRuleNotes && form.unitRuleNotes.includes('Single charge') ? (
+                    <div className="rounded-lg p-4 bg-emerald-50 border border-emerald-200">
+                      <div className="flex items-start gap-2">
+                        <CheckCircle className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
+                        <div className="text-sm text-emerald-800">
+                          <p className="font-semibold">Unit Rule: Not Applicable</p>
+                          <p>Single charge in this case — the unit rule does not apply.</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : !form.unitRuleNotes ? (
                     <div className="rounded-lg p-4 bg-amber-50 border border-amber-200">
                       <div className="flex items-start gap-2">
                         <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
                         <div className="text-sm text-amber-800">
                           <p className="font-semibold">Unit Rule Warning</p>
-                          <p>The Unit Rule (CP § 10-107) may affect eligibility. If this case is part of a unit with other charges from the same incident, ALL charges in the unit must be independently eligible for expungement. Attorney must verify before filing.</p>
+                          <p>Use Auto-Fill to pull all charges from Case Search so the unit rule can be checked automatically. If this case has multiple charges from the same incident, ALL charges must be independently eligible (CP § 10-107).</p>
                         </div>
                       </div>
                     </div>
-                  )}
+                  ) : null}
 
                   {(eligResult.status === "eligible" || eligResult.status === "needs_review") && eligResult.form && (
                     <Button onClick={() => { handleSave(); setTab("petition"); }} className="bg-[#01696F] hover:bg-[#015258]" data-testid="button-generate-petition">
