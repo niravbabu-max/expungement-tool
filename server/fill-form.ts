@@ -27,16 +27,21 @@ function fillAttorneyBlock(form: any) {
   trySet("Signature of Attorney", ATTORNEY_SIGNATURE);
   trySet("Attorney Signature", ATTORNEY_SIGNATURE);
   trySet("Signature", ATTORNEY_SIGNATURE);
+  trySet("Text28", ATTORNEY_SIGNATURE);  // 072B signature field
   
   // Attorney number
   trySet("Attorney Number", ATTORNEY_NUMBER);
   trySet("Attorney No", ATTORNEY_NUMBER);
   trySet("Atty Number", ATTORNEY_NUMBER);
+  trySet("CPF ID No", ATTORNEY_NUMBER);  // 072B attorney number field
   
   // Date (today's date)
   trySet("Date", todayDate());
   trySet("Attorney Date", todayDate());
+  trySet("Date Attorney Signed", todayDate());
   trySet("Date_2", todayDate());
+  trySet("Date_3", todayDate());  // 072B/072C attorney date field
+  trySet("Date_1", todayDate());  // 072D attorney date field
   
   // Printed name
   trySet("Printed Name", ATTORNEY_NAME);
