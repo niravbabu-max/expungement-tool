@@ -97,7 +97,17 @@ export default function CaseForm() {
       if (data.charges && data.charges.length > 0) {
         const c = data.charges[0];
         if (c.description) updates.offenseDescription = data.charges.map((ch: any) => ch.description).filter(Boolean).join("; ");
-        if (c.disposition) updates.dispositionType = c.disposition;
+        // Map Case Search disposition text to our dropdown values
+        if (c.disposition) {
+          const d = c.disposition.toLowerCase();
+          if (d.includes('probation before judgment') || d.includes('pbj')) updates.dispositionType = 'pbj';
+          else if (d.includes('nolle prosequi') || d.includes('nol pros')) updates.dispositionType = 'nolle_prosequi';
+          else if (d.includes('not guilty') || d.includes('acquit')) updates.dispositionType = 'acquittal';
+          else if (d.includes('stet')) updates.dispositionType = 'stet';
+          else if (d.includes('dismiss')) updates.dispositionType = 'dismissal';
+          else if (d.includes('not criminally responsible')) updates.dispositionType = 'not_criminally_responsible';
+          else if (d.includes('guilty') || d.includes('convicted')) updates.dispositionType = 'guilty_misdemeanor';
+        }
         if (c.dispositionDate) updates.dispositionDate = c.dispositionDate;
       }
       if (data.arrestDate) updates.incidentDescription = `Arrest date: ${data.arrestDate}`;
