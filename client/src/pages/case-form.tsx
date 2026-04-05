@@ -934,13 +934,15 @@ function PetitionView({ caseData, eligResult, caseId }: { caseData: FormData; el
         <div className="grid grid-cols-2 gap-8 mt-8 text-xs">
           <div className="space-y-3">
             <p className="font-bold">Attorney</p>
-            <div className="border-b border-black h-6"></div>
+            <p className="italic">/s/ Nirav Babu</p>
+            <div className="border-b border-black"></div>
             <p className="text-muted-foreground">Signature of Attorney</p>
-            <p>Attorney Number: ________________</p>
+            <p>Attorney Number: 0606130009</p>
             <p>Date: ________________</p>
-            <p>Printed Name: ________________</p>
-            <p>Firm: Innovate Criminal Defense Lawyers</p>
-            <p>Address: ________________</p>
+            <p>Printed Name: Nirav Babu, Esq.</p>
+            <p>Firm: Innovate Legal Group</p>
+            <p>Address: 3030 Greenmount Ave, Suite 320</p>
+            <p>Baltimore, MD 21218</p>
             <p>Telephone: ________________</p>
             <p>Email: ________________</p>
           </div>
