@@ -181,11 +181,22 @@ function parseCharges(html: string): CaseSearchResult["charges"] {
                        extractAfterLabel(section, "Fine Amount");
 
       if (desc || statute || disp) {
+        // Map raw disposition text to our disposition types
+        let mappedDisp = disp;
+        if (disp) {
+          const dispLower = disp.toLowerCase();
+          if (dispLower.includes('probation before judgment') || dispLower.includes('pbj')) mappedDisp = 'Probation Before Judgment';
+          else if (dispLower.includes('nolle prosequi') || dispLower.includes('nol pros')) mappedDisp = 'Nolle Prosequi';
+          else if (dispLower.includes('not guilty') || dispLower.includes('acquit')) mappedDisp = 'Not Guilty';
+          else if (dispLower.includes('stet')) mappedDisp = 'Stet';
+          else if (dispLower.includes('dismiss')) mappedDisp = 'Dismissed';
+          else if (dispLower.includes('guilty') || dispLower.includes('convicted')) mappedDisp = 'Guilty';
+        }
         charges.push({
           chargeNumber: positions[i].num,
           description: desc,
           statute: statute,
-          disposition: disp,
+          disposition: mappedDisp,
           dispositionDate: dispDate,
           sentence: sentence || undefined,
         });
@@ -344,15 +355,43 @@ export async function lookupCase(caseNumber: string): Promise<CaseSearchResult> 
       };
     }
 
-    // Case info
-    const caseType = extractAfterLabel(html, "Case Type") || extractAfterLabel(html, "CaseType");
+    // Case info — new portal uses pipe-separated label|value format in rendered text
+    const caseType = extractAfterLabel(html, "Case Type") || extractAfterLabel(html, "CaseType") || "";
+    
+    // County: new portal shows "Location:" with the city name. Map known locations to counties.
+    let county = parseCountyFromHtml(html, cleanNum);
+    // Upper Marlboro = Prince George's
+    const locationVal = extractAfterLabel(html, "Location");
+    if (!county && locationVal) {
+      const locMap: Record<string, string> = {
+        "upper marlboro": "Prince George's", "hyattsville": "Prince George's",
+        "baltimore": "Baltimore City", "towson": "Baltimore County",
+        "annapolis": "Anne Arundel", "glen burnie": "Anne Arundel",
+        "rockville": "Montgomery", "silver spring": "Montgomery",
+        "bel air": "Harford", "ellicott city": "Howard",
+        "frederick": "Frederick", "hagerstown": "Washington",
+        "salisbury": "Wicomico", "cambridge": "Dorchester",
+        "la plata": "Charles", "leonardtown": "St. Mary's",
+        "prince frederick": "Calvert", "chestertown": "Kent",
+        "elkton": "Cecil", "westminster": "Carroll",
+        "oakland": "Garrett", "cumberland": "Allegany",
+        "easton": "Talbot", "centreville": "Queen Anne's",
+        "princess anne": "Somerset", "snow hill": "Worcester",
+        "denton": "Caroline",
+      };
+      const locLower = locationVal.toLowerCase();
+      for (const [city, cnty] of Object.entries(locMap)) {
+        if (locLower.includes(city)) { county = cnty; break; }
+      }
+    }
+    
     result.caseInfo = {
       caseNumber: cleanNum,
-      caseType: caseType || "",
+      caseType: caseType,
       courtType: parseCourtType(cleanNum, html),
-      county: parseCountyFromHtml(html, cleanNum),
-      filingDate: extractAfterLabel(html, "Filing Date") || extractAfterLabel(html, "FilingDate"),
-      status: extractAfterLabel(html, "Case Status") || extractAfterLabel(html, "Case Disposition") || extractAfterLabel(html, "Status"),
+      county: county,
+      filingDate: extractAfterLabel(html, "Filing Date"),
+      status: extractAfterLabel(html, "Case Status") || extractAfterLabel(html, "Case Disposition"),
     };
 
     // Law enforcement
