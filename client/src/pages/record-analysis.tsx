@@ -149,7 +149,26 @@ export default function RecordAnalysis() {
           continue;
         }
         const data = await res.json();
-        cases.push(data as CaseRecord);
+        if (!data.success) {
+          failures.push(`${cn} (${data.error || 'not found'})`);
+          continue;
+        }
+        // Map the API response to CaseRecord format
+        const record: CaseRecord = {
+          caseNumber: cn,
+          charges: (data.charges || []).map((ch: any) => ({
+            description: ch.description || '',
+            statute: ch.statute || '',
+            disposition: ch.disposition || '',
+            dispositionDate: ch.dispositionDate || '',
+          })),
+          defendant: data.defendant?.name || '',
+          courtType: data.caseInfo?.courtType || '',
+          county: data.caseInfo?.county || '',
+          filingDate: data.caseInfo?.filingDate || '',
+          status: data.caseInfo?.status || '',
+        };
+        cases.push(record);
       } catch (err) {
         failures.push(`${cn} (network error)`);
       }
@@ -170,8 +189,12 @@ export default function RecordAnalysis() {
       setError(`Warning: Could not look up ${failures.join(", ")}. Analyzing the ${cases.length} case(s) that were found.`);
     }
 
-    const analysisResult = analyzeFullRecord(cases);
-    setResult(analysisResult);
+    try {
+      const analysisResult = analyzeFullRecord(cases);
+      setResult(analysisResult);
+    } catch (err: any) {
+      setError(`Analysis failed: ${err.message || 'Unknown error'}. Try with fewer cases or check the case numbers.`);
+    }
   }
 
   return (
