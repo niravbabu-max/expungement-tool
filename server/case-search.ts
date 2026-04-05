@@ -261,4 +261,77 @@ export async function lookupCase(caseNumber: string): Promise<CaseSearchResult> 
       // Extract the first detail link
       const detailMatch = html.match(/href="(inquiryDetail\.jis\?[^"]+)"/i);
       if (detailMatch) {
-        const detailUrl = `https://casesearch.courts.state.md.us/casesearch/${
+        const detailUrl = `https://casesearch.courts.state.md.us/casesearch/${detailMatch[1].replace(/&amp;/g, '&')}`;
+        console.log(`[CaseSearch] Following detail link: ${detailUrl}`);
+        html = await scrapflyFetch(detailUrl, apiKey);
+      }
+    }
+
+    // Now parse the detail page
+    const result: CaseSearchResult = {
+      success: true,
+      charges: [],
+    };
+
+    // Defendant info
+    const defName = extractAfterLabel(html, "Defendant Name") || 
+                    extractAfterLabel(html, "Name") ||
+                    extractAfterLabel(html, "Party Name");
+    const defDOB = extractAfterLabel(html, "Date of Birth") || extractAfterLabel(html, "DOB");
+    const defAddr = extractAfterLabel(html, "Address") || extractAfterLabel(html, "Street Address");
+    const defCity = extractAfterLabel(html, "City");
+    const defState = extractAfterLabel(html, "State");
+    const defZip = extractAfterLabel(html, "Zip Code");
+    
+    if (defName) {
+      result.defendant = {
+        name: defName,
+        dob: defDOB || undefined,
+        address: defAddr || undefined,
+        city: defCity || undefined,
+        state: defState || "MD",
+        zip: defZip || undefined,
+      };
+    }
+
+    // Case info
+    const caseType = extractAfterLabel(html, "Case Type") || extractAfterLabel(html, "CaseType");
+    result.caseInfo = {
+      caseNumber: cleanNum,
+      caseType: caseType || "",
+      courtType: parseCourtType(cleanNum, html),
+      county: parseCountyFromHtml(html, cleanNum),
+      filingDate: extractAfterLabel(html, "Filing Date") || extractAfterLabel(html, "FilingDate"),
+      status: extractAfterLabel(html, "Case Status") || extractAfterLabel(html, "Case Disposition") || extractAfterLabel(html, "Status"),
+    };
+
+    // Law enforcement
+    result.lawEnforcement = extractAfterLabel(html, "Agency Name") || 
+                            extractAfterLabel(html, "Arresting Agency") || 
+                            extractAfterLabel(html, "Law Enforcement Agency") ||
+                            extractAfterLabel(html, "Officer");
+    result.arrestDate = extractAfterLabel(html, "Arrest Date") || extractAfterLabel(html, "Date of Arrest");
+
+    // Parse charges
+    result.charges = parseCharges(html);
+
+    // If we got nothing useful, the page structure may have changed
+    if (!result.defendant && result.charges.length === 0) {
+      // Save raw HTML for debugging  
+      console.log(`[CaseSearch] Page parsed but no data extracted. HTML length: ${html.length}`);
+      console.log(`[CaseSearch] HTML snippet: ${html.substring(0, 500)}`);
+      return { 
+        success: false, 
+        error: "Case page loaded but couldn't extract data. The page structure may have changed. Try using Manual Lookup instead.", 
+        charges: [],
+      };
+    }
+
+    console.log(`[CaseSearch] Success: ${result.defendant?.name || 'Unknown'}, ${result.charges.length} charges`);
+    return result;
+    
+  } catch (e: any) {
+    console.error(`[CaseSearch] Error:`, e.message);
+    return { success: false, error: `Lookup failed: ${e.message}`, charges: [] };
+  }
+}
