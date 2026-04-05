@@ -22,6 +22,50 @@ export interface EligibilityResult {
   fee: string;
   reason: string;
   eligibleDate?: string;
+  missingInfo?: string[];  // list of specific information needed to complete determination
+}
+
+/** Build a list of missing information needed for a full determination */
+export function buildMissingInfoList(caseData: {
+  dispositionType?: string | null;
+  dispositionDate?: string | null;
+  hasPendingCases?: string | null;
+  sentenceCompleted?: string | null;
+  sentenceCompletionDate?: string | null;
+  probationDischarged?: string | null;
+  probationDischargeDate?: string | null;
+}): string[] {
+  const missing: string[] = [];
+  if (!caseData.dispositionType) missing.push("Disposition type (how the case ended)");
+  if (!caseData.dispositionDate) missing.push("Disposition date (when the case ended)");
+  
+  const dt = caseData.dispositionType || "";
+  const isGuiltyDisp = dt.startsWith("guilty");
+  const isPBJ = dt === "pbj" || dt === "pbj_dui";
+  
+  if (isGuiltyDisp) {
+    if (!caseData.sentenceCompleted || caseData.sentenceCompleted === "") {
+      missing.push("Whether the sentence has been fully completed (including probation, parole, and supervision)");
+    }
+    if (caseData.sentenceCompleted === "yes" && !caseData.sentenceCompletionDate) {
+      missing.push("Sentence completion date (the date ALL sentences, probation, and supervision ended)");
+    }
+    if (!caseData.hasPendingCases || caseData.hasPendingCases === "") {
+      missing.push("Whether the defendant has any pending criminal cases");
+    }
+  }
+  if (isPBJ) {
+    if (!caseData.probationDischarged || caseData.probationDischarged === "") {
+      missing.push("Whether probation has been discharged/completed");
+    }
+    if (caseData.probationDischarged === "yes" && !caseData.probationDischargeDate) {
+      missing.push("Probation discharge date");
+    }
+    if (!caseData.hasPendingCases || caseData.hasPendingCases === "") {
+      missing.push("Whether the defendant has any pending criminal cases");
+    }
+  }
+  return missing;
 }
 
 /** Full metadata for a single eligible offense entry. */
@@ -1976,6 +2020,9 @@ export function analyzeEligibility(caseData: {
       reason: "Cannot file for expungement while the defendant has pending criminal cases. All pending matters must be resolved first.",
     };
   }
+
+  // Build missing info checklist for needs_review results
+  const missingInfo = buildMissingInfoList(caseData);
 
   // 2025 Reform Act note appended to conviction-based results
   const reform2025Note =
