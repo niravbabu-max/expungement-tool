@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { analyzeEligibility, type EligibilityResult } from "@/lib/eligibility";
+import { analyzeEligibility, analyzeUnit, checkAutoExpungement, lookupStatute, type EligibilityResult } from "@/lib/eligibility";
+import type { UnitRuleResult } from "@/lib/eligibility";
 import { MD_COUNTIES, DISPOSITION_OPTIONS } from "@/lib/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { ArrowLeft, ExternalLink, Search, FileCheck, AlertTriangle, XCircle, CheckCircle, Printer, Download, Loader2, Zap } from "lucide-react";
+import { ArrowLeft, ExternalLink, Search, FileCheck, AlertTriangle, XCircle, CheckCircle, Printer, Download, Loader2, Zap, Info } from "lucide-react";
 import type { ExpungementCase } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
@@ -33,93 +34,24 @@ const empty: FormData = {
 const isGuilty = (dt: string | null | undefined) =>
   dt?.startsWith("guilty_") || false;
 
-function mapDispositionText(rawDisp: string): string {
-  const d = rawDisp.toLowerCase();
-  if (d.includes('probation before judgment') || d.includes('pbj')) return 'pbj';
-  if (d.includes('nolle prosequi') || d.includes('nol pros')) return 'nolle_prosequi';
-  if (d.includes('not guilty') || d.includes('acquit')) return 'acquittal';
-  if (d.includes('stet')) return 'stet';
-  if (d.includes('dismiss')) return 'dismissal';
-  if (d.includes('not criminally responsible')) return 'not_criminally_responsible';
-  if (d.includes('guilty') || d.includes('convicted')) return 'guilty_misdemeanor';
-  return '';
-}
+/**
+ * Detect whether the offense description or statute indicates a sex offense
+ * that disqualifies PBJ expungement (Title 2 Subtitle 5 CL, or § 3-211 CL).
+ */
+function isSexOffensePBJExclusion(offenseDescription: string, statuteCode: string): boolean {
+  const desc = (offenseDescription || "").toLowerCase();
+  const stat = (statuteCode || "").toLowerCase();
 
-function buildUnitRuleAnalysis(charges: Array<{ chargeNumber: number; description: string; statute: string; disposition: string; dispositionDate: string; sentence?: string }>): string {
-  if (!charges || charges.length <= 1) return "Single charge — unit rule does not apply.";
+  // § 3-211 CL (sexual offense / child sex abuse)
+  if (stat.includes("3-211") || stat.includes("3.211")) return true;
+  if (desc.includes("3-211")) return true;
 
-  const lines: string[] = [`UNIT RULE ANALYSIS (${charges.length} charges in this case)\n`];
-  let allEligible = true;
-  let hasBlockingCharge = false;
-  let blockingReason = "";
+  // Title 2 Subtitle 5 of CL — rape and sexual offenses (§ 3-303 through § 3-312)
+  const sexOffensePattern = /\b(rape|sexual offense|sex offense|sexual assault|§\s*3-30[3-9]|§\s*3-31[0-2]|cl\s*§\s*3-3[01]\d)\b/i;
+  if (sexOffensePattern.test(desc)) return true;
+  if (/3-30[3-9]|3-31[0-2]/i.test(stat)) return true;
 
-  for (const ch of charges) {
-    const dispType = ch.disposition ? mapDispositionText(ch.disposition) : '';
-    const isCannabis = (ch.description || '').toLowerCase().includes('cannabis') || 
-                       (ch.description || '').toLowerCase().includes('marijuana') ||
-                       (ch.statute || '').includes('5-601');
-    
-    // Determine if this individual charge is eligible
-    let chargeEligible = false;
-    let note = '';
-
-    if (['acquittal', 'dismissal', 'nolle_prosequi', 'stet', 'not_criminally_responsible'].includes(dispType)) {
-      chargeEligible = true;
-      note = `Eligible (${ch.disposition})`;
-    } else if (dispType === 'pbj') {
-      chargeEligible = true; // PBJ is generally eligible
-      note = `Eligible (PBJ — verify waiting period)`;
-    } else if (dispType.startsWith('guilty') || dispType === 'guilty_misdemeanor') {
-      // Guilty — need to check if the offense is on the eligible list
-      // For now, flag as needing review unless it's a known eligible offense
-      const desc = (ch.description || '').toLowerCase();
-      const stat = (ch.statute || '').toLowerCase();
-      
-      // Common eligible offenses
-      if (desc.includes('assault') && desc.includes('second') || stat.includes('3-203') || stat.includes('3.203')) {
-        note = 'Potentially eligible (Assault 2nd — 7yr wait, § 10-110)';
-        chargeEligible = true; // eligible with waiting period
-      } else if (desc.includes('cds') || desc.includes('possess') || stat.includes('5-601')) {
-        note = 'Potentially eligible (CDS possession — 5yr wait)';
-        chargeEligible = true;
-      } else if (desc.includes('theft') && !desc.includes('armed')) {
-        note = 'Potentially eligible (Theft — check if felony/misdemeanor)';
-        chargeEligible = true;
-      } else if (desc.includes('trespass') || desc.includes('disorderly')) {
-        note = 'Potentially eligible (5yr wait)';
-        chargeEligible = true;
-      } else {
-        // Unknown guilty offense — could be non-eligible
-        note = 'NEEDS REVIEW — guilty conviction, attorney must verify if offense is on eligible list';
-        chargeEligible = false;
-        hasBlockingCharge = true;
-        blockingReason = `Charge ${ch.chargeNumber} (${ch.description}) — guilty conviction needs attorney review to confirm eligible offense`;
-      }
-    } else {
-      note = 'Unknown disposition — needs review';
-      chargeEligible = false;
-      hasBlockingCharge = true;
-      blockingReason = `Charge ${ch.chargeNumber} — unknown disposition`;
-    }
-
-    if (!chargeEligible && !isCannabis) allEligible = false;
-
-    const cannabisNote = isCannabis ? ' [CANNABIS — EXEMPT from unit rule]' : '';
-    lines.push(`Charge ${ch.chargeNumber}: ${ch.description || 'Unknown'} (${ch.statute || 'No statute'})`);
-    lines.push(`  Disposition: ${ch.disposition || 'Unknown'} ${ch.dispositionDate ? '(' + ch.dispositionDate + ')' : ''}`);
-    lines.push(`  Status: ${note}${cannabisNote}\n`);
-  }
-
-  lines.push('---');
-  if (allEligible) {
-    lines.push('UNIT RULE RESULT: ✓ ALL charges appear eligible. Unit rule does NOT block expungement.');
-  } else if (hasBlockingCharge) {
-    lines.push(`UNIT RULE RESULT: ⚠ POTENTIAL BLOCK — ${blockingReason}`);
-    lines.push('If any non-cannabis charge in the unit is not eligible, the entire unit is blocked (CP § 10-107).');
-    lines.push('Attorney must verify before filing.');
-  }
-
-  return lines.join('\n');
+  return false;
 }
 
 export default function CaseForm() {
@@ -133,6 +65,14 @@ export default function CaseForm() {
   const [lookingUp, setLookingUp] = useState(false);
   const [lookupError, setLookupError] = useState("");
   const [lookupSuccess, setLookupSuccess] = useState(false);
+
+  // New state variables for unit rule and auto-expungement
+  const [unitResult, setUnitResult] = useState<UnitRuleResult | null>(null);
+  const [autoExpungeInfo, setAutoExpungeInfo] = useState<{ autoExpunged: boolean; message: string } | null>(null);
+  // New state for "new conviction during waiting period" question
+  const [newConvictionDuringWait, setNewConvictionDuringWait] = useState<"no" | "yes" | "unknown">("no");
+  // Hidden state for statute code populated from Case Search
+  const [statuteCode, setStatuteCode] = useState<string>("");
 
   const { data: existing } = useQuery<ExpungementCase>({
     queryKey: ["/api/cases", params.id],
@@ -182,40 +122,64 @@ export default function CaseForm() {
         if (data.caseInfo.county) updates.county = data.caseInfo.county;
       }
       if (data.lawEnforcement) updates.lawEnforcementAgency = data.lawEnforcement;
-      // Store ALL charges as JSON for unit rule analysis
+
+      // Store ALL charges and analyze unit rule
       if (data.charges && data.charges.length > 0) {
         // Build combined offense description from all charges
         updates.offenseDescription = data.charges.map((ch: any, i: number) => {
-          const parts = [`Charge ${i+1}: ${ch.description || 'Unknown'}`];
+          const parts = [`Charge ${i + 1}: ${ch.description || "Unknown"}`];
           if (ch.statute) parts[0] += ` (${ch.statute})`;
           if (ch.disposition) parts[0] += ` — ${ch.disposition}`;
           return parts[0];
         }).join("; ");
 
-        // Use the first charge's disposition for the primary dropdown
-        const c = data.charges[0];
+        // Store the first charge's statute code for the eligibility analyzer
+        const firstCharge = data.charges[0];
+        if (firstCharge.statute) {
+          setStatuteCode(firstCharge.statute);
+        }
+
+        // Map the first charge's disposition to the dropdown value
+        const c = firstCharge;
         if (c.disposition) {
           const d = c.disposition.toLowerCase();
-          if (d.includes('probation before judgment') || d.includes('pbj')) updates.dispositionType = 'pbj';
-          else if (d.includes('nolle prosequi') || d.includes('nol pros')) updates.dispositionType = 'nolle_prosequi';
-          else if (d.includes('not guilty') || d.includes('acquit')) updates.dispositionType = 'acquittal';
-          else if (d.includes('stet')) updates.dispositionType = 'stet';
-          else if (d.includes('dismiss')) updates.dispositionType = 'dismissal';
-          else if (d.includes('not criminally responsible')) updates.dispositionType = 'not_criminally_responsible';
-          else if (d.includes('guilty') || d.includes('convicted')) updates.dispositionType = 'guilty_misdemeanor';
+          if (d.includes("probation before judgment") || d.includes("pbj")) updates.dispositionType = "pbj";
+          else if (d.includes("nolle prosequi") || d.includes("nol pros")) updates.dispositionType = "nolle_prosequi";
+          else if (d.includes("not guilty") || d.includes("acquit")) updates.dispositionType = "acquittal";
+          else if (d.includes("stet")) updates.dispositionType = "stet";
+          else if (d.includes("dismiss")) updates.dispositionType = "dismissal";
+          else if (d.includes("not criminally responsible")) updates.dispositionType = "not_criminally_responsible";
+          else if (d.includes("guilty") || d.includes("convicted")) updates.dispositionType = "guilty_misdemeanor";
         }
         if (c.dispositionDate) updates.dispositionDate = c.dispositionDate;
 
-        // Store all charges as JSON for unit rule analysis
-        updates.unitRuleNotes = buildUnitRuleAnalysis(data.charges);
+        // Run the new analyzeUnit() from the eligibility engine
+        const chargesForUnit = data.charges.map((ch: any) => ({
+          description: ch.description || "",
+          statute: ch.statute || "",
+          disposition: ch.disposition || "",
+          dispositionDate: ch.dispositionDate || "",
+        }));
+        const unitAnalysis = analyzeUnit(chargesForUnit);
+        setUnitResult(unitAnalysis);
+
+        // Store a text summary in unitRuleNotes for persistence
+        updates.unitRuleNotes = unitAnalysis.summary;
+
+        // Run auto-expungement check
+        const dispositionDate = c.dispositionDate || "";
+        const dispositionType = c.disposition || updates.dispositionType || "";
+        const autoExpResult = checkAutoExpungement(dispositionDate, dispositionType);
+        setAutoExpungeInfo(autoExpResult);
       }
+
       if (data.arrestDate) updates.incidentDescription = `Arrest date: ${data.arrestDate}`;
       // Auto-fill probation discharge date from PBJ end date
       if (data.probationEndDate) {
-        updates.probationDischarged = 'yes';
+        updates.probationDischarged = "yes";
         updates.probationDischargeDate = data.probationEndDate;
       }
-      setForm(f => ({ ...f, ...updates }));
+      setForm((f) => ({ ...f, ...updates }));
       setLookupSuccess(true);
       toast({ title: "Case data loaded from Case Search" });
     } catch (e: any) {
@@ -265,6 +229,11 @@ export default function CaseForm() {
 
   const dispLabel = DISPOSITION_OPTIONS.find((d) => d.value === form.dispositionType)?.label || "";
 
+  // Determine if PBJ sex offense exclusion warning should be shown
+  const showPbjSexOffenseWarning =
+    (form.dispositionType === "pbj" || form.dispositionType === "pbj_dui") &&
+    isSexOffensePBJExclusion(form.offenseDescription || "", statuteCode);
+
   return (
     <div className="space-y-4 max-w-4xl">
       <div className="flex items-center gap-3">
@@ -282,6 +251,9 @@ export default function CaseForm() {
           <TabsTrigger value="petition">Petition</TabsTrigger>
         </TabsList>
 
+        {/* ================================================================
+            TAB 1: CASE INFO
+        ================================================================ */}
         <TabsContent value="info">
           <Card>
             <CardHeader><CardTitle className="text-base">Case Information</CardTitle></CardHeader>
@@ -356,6 +328,9 @@ export default function CaseForm() {
           </Card>
         </TabsContent>
 
+        {/* ================================================================
+            TAB 2: CHARGE & DISPOSITION
+        ================================================================ */}
         <TabsContent value="disposition">
           <Card>
             <CardHeader><CardTitle className="text-base">Charge & Disposition Details</CardTitle></CardHeader>
@@ -435,12 +410,34 @@ export default function CaseForm() {
                 </div>
               )}
 
+              {/* Has Pending Criminal Cases */}
               <div className="space-y-2">
                 <Label>Has Pending Criminal Cases?</Label>
                 <RadioGroup value={form.hasPendingCases || "no"} onValueChange={(v) => set("hasPendingCases", v)} className="flex gap-4">
                   <div className="flex items-center space-x-1"><RadioGroupItem value="no" id="pc-n" /><Label htmlFor="pc-n" className="text-sm">No</Label></div>
                   <div className="flex items-center space-x-1"><RadioGroupItem value="yes" id="pc-y" /><Label htmlFor="pc-y" className="text-sm">Yes</Label></div>
                 </RadioGroup>
+              </div>
+
+              {/* New conviction during waiting period — spec item #6 */}
+              <div className="space-y-2" data-testid="new-conviction-question">
+                <Label>Has the defendant been convicted of any NEW crime since this case was disposed of?</Label>
+                <RadioGroup
+                  value={newConvictionDuringWait}
+                  onValueChange={(v) => setNewConvictionDuringWait(v as "no" | "yes" | "unknown")}
+                  className="flex gap-4"
+                  data-testid="radio-new-conviction"
+                >
+                  <div className="flex items-center space-x-1"><RadioGroupItem value="no" id="nc-n" /><Label htmlFor="nc-n" className="text-sm">No</Label></div>
+                  <div className="flex items-center space-x-1"><RadioGroupItem value="yes" id="nc-y" /><Label htmlFor="nc-y" className="text-sm">Yes</Label></div>
+                  <div className="flex items-center space-x-1"><RadioGroupItem value="unknown" id="nc-u" /><Label htmlFor="nc-u" className="text-sm">Unknown</Label></div>
+                </RadioGroup>
+                {newConvictionDuringWait === "yes" && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mt-2" data-testid="new-conviction-warning">
+                    <AlertTriangle className="w-4 h-4 inline-block mr-1 mb-0.5" />
+                    A new conviction during the waiting period may block expungement unless the new conviction itself becomes eligible (CP § 10-110(d)(1)).
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -451,6 +448,9 @@ export default function CaseForm() {
           </Card>
         </TabsContent>
 
+        {/* ================================================================
+            TAB 3: ELIGIBILITY
+        ================================================================ */}
         <TabsContent value="eligibility">
           <Card>
             <CardHeader><CardTitle className="text-base">Eligibility Analysis</CardTitle></CardHeader>
@@ -459,6 +459,34 @@ export default function CaseForm() {
                 <Search className="w-4 h-4 mr-2" /> Analyze Eligibility
               </Button>
 
+              {/* Auto-expungement notice — spec item #8 */}
+              {autoExpungeInfo?.autoExpunged && (
+                <div className="rounded-lg p-4 border-2 border-blue-300 bg-blue-50" data-testid="auto-expunge-notice">
+                  <div className="flex items-start gap-3">
+                    <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-blue-900 text-sm mb-1">Possible Automatic Expungement — CP § 10-105.1</p>
+                      <p className="text-sm text-blue-800">
+                        This case may have been <strong>AUTOMATICALLY EXPUNGED</strong> under CP § 10-105.1. Cases after October 1, 2021 where all charges resulted in acquittal, dismissal, not guilty, or nolle prosequi are automatically expunged after 3 years. Verify on Case Search — the records may already be removed.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* PBJ sex offense exclusion warning — spec item #7 */}
+              {showPbjSexOffenseWarning && (
+                <div className="rounded-lg p-4 border-2 border-red-300 bg-red-50" data-testid="pbj-sex-offense-warning">
+                  <div className="flex items-start gap-3">
+                    <XCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                    <p className="text-sm text-red-800">
+                      <strong>PBJ expungement is NOT available for violations of Criminal Law Article Title 2, Subtitle 5 or § 3-211 (sex offenses).</strong> See CP § 10-105(a)(3).
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Main eligibility result */}
               {eligResult && (
                 <div className="space-y-4">
                   <div className={`rounded-lg p-6 border-2 ${
@@ -505,250 +533,358 @@ export default function CaseForm() {
                     )}
                   </div>
 
-                  {form.unitRuleNotes && form.unitRuleNotes.includes('UNIT RULE ANALYSIS') ? (
-                    <div className={`rounded-lg p-4 border ${form.unitRuleNotes.includes('ALL charges appear eligible') ? 'bg-emerald-50 border-emerald-200' : form.unitRuleNotes.includes('POTENTIAL BLOCK') ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
-                      <div className="flex items-start gap-2">
-                        {form.unitRuleNotes.includes('ALL charges appear eligible') ? 
-                          <CheckCircle className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" /> :
-                          <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />}
-                        <div className="text-sm">
-                          <p className="font-semibold mb-2">{form.unitRuleNotes.includes('ALL charges appear eligible') ? 'Unit Rule: All Clear' : form.unitRuleNotes.includes('POTENTIAL BLOCK') ? 'Unit Rule: Potential Block' : 'Unit Rule Analysis'}</p>
-                          <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed">{form.unitRuleNotes}</pre>
+                  {/* Unit Rule Display — spec item #5 */}
+                  {(() => {
+                    // No auto-fill done yet — prompt user
+                    if (!unitResult && !lookupSuccess) {
+                      return (
+                        <div className="rounded-lg p-4 border border-amber-300 bg-amber-50" data-testid="unit-rule-prompt">
+                          <div className="flex items-start gap-3">
+                            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-semibold text-amber-800 text-sm">Unit Rule: Analysis Not Yet Available</p>
+                              <p className="text-sm text-amber-700 mt-1">
+                                Use <strong>Auto-Fill from Case Search</strong> on the Case Info tab to load all charges automatically and run the unit rule analysis.
+                              </p>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  ) : form.unitRuleNotes && form.unitRuleNotes.includes('Single charge') ? (
-                    <div className="rounded-lg p-4 bg-emerald-50 border border-emerald-200">
-                      <div className="flex items-start gap-2">
-                        <CheckCircle className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
-                        <div className="text-sm text-emerald-800">
-                          <p className="font-semibold">Unit Rule: Not Applicable</p>
-                          <p>Single charge in this case — the unit rule does not apply.</p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : !form.unitRuleNotes ? (
-                    <div className="rounded-lg p-4 bg-amber-50 border border-amber-200">
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                        <div className="text-sm text-amber-800">
-                          <p className="font-semibold">Unit Rule Warning</p>
-                          <p>Use Auto-Fill to pull all charges from Case Search so the unit rule can be checked automatically. If this case has multiple charges from the same incident, ALL charges must be independently eligible (CP § 10-107).</p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
+                      );
+                    }
 
-                  {(eligResult.status === "eligible" || eligResult.status === "needs_review") && eligResult.form && (
-                    <Button onClick={() => { handleSave(); setTab("petition"); }} className="bg-[#01696F] hover:bg-[#015258]" data-testid="button-generate-petition">
-                      <FileCheck className="w-4 h-4 mr-2" /> View Petition
-                    </Button>
-                  )}
+                    // Single charge — unit rule not applicable
+                    if (unitResult && unitResult.charges.length <= 1) {
+                      return (
+                        <div className="rounded-lg p-4 border border-emerald-300 bg-emerald-50" data-testid="unit-rule-single">
+                          <div className="flex items-start gap-3">
+                            <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                            <p className="text-sm text-emerald-800 font-semibold">Unit Rule: Not Applicable — single charge</p>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // All eligible
+                    if (unitResult?.status === "all_eligible") {
+                      return (
+                        <div className="rounded-lg p-4 border-2 border-emerald-300 bg-emerald-50" data-testid="unit-rule-all-eligible">
+                          <div className="flex items-start gap-3 mb-3">
+                            <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-bold text-emerald-800 text-sm">Unit Rule: All Clear</p>
+                              <p className="text-xs text-emerald-700 mt-0.5">{unitResult.summary}</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            {unitResult.charges.map((ch) => (
+                              <div key={ch.chargeNumber} className="bg-white rounded p-2 text-xs border border-emerald-100">
+                                <span className="font-semibold text-emerald-900">Charge {ch.chargeNumber}:</span>{" "}
+                                <span className="text-gray-700">{ch.description}</span>
+                                {ch.statute && <span className="text-gray-500"> ({ch.statute})</span>}
+                                {ch.isCannabis && <Badge variant="outline" className="ml-1 text-xs py-0 h-4 border-emerald-400 text-emerald-700">Cannabis — Exempt</Badge>}
+                                <p className="text-gray-500 mt-0.5 ml-0">{ch.reason}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // Blocked
+                    if (unitResult?.status === "blocked") {
+                      const blockingCharge = unitResult.charges.find((ch) => !ch.eligible && !ch.isCannabis);
+                      return (
+                        <div className="rounded-lg p-4 border-2 border-red-300 bg-red-50" data-testid="unit-rule-blocked">
+                          <div className="flex items-start gap-3 mb-3">
+                            <XCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-bold text-red-800 text-sm">Unit Rule: BLOCKED</p>
+                              {blockingCharge && (
+                                <p className="text-xs text-red-700 mt-0.5">
+                                  Charge {blockingCharge.chargeNumber} ({blockingCharge.description || blockingCharge.statute}) blocks the entire unit.
+                                </p>
+                              )}
+                              <p className="text-xs text-red-700 mt-1">{unitResult.summary}</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            {unitResult.charges.map((ch) => (
+                              <div key={ch.chargeNumber} className={`rounded p-2 text-xs border ${ch.eligible || ch.isCannabis ? "bg-white border-gray-100" : "bg-red-100 border-red-200"}`}>
+                                <span className="font-semibold">{ch.eligible || ch.isCannabis ? "✓" : "✗"} Charge {ch.chargeNumber}:</span>{" "}
+                                <span className="text-gray-700">{ch.description}</span>
+                                {ch.statute && <span className="text-gray-500"> ({ch.statute})</span>}
+                                {ch.isCannabis && <Badge variant="outline" className="ml-1 text-xs py-0 h-4 border-emerald-400 text-emerald-700">Cannabis — Exempt</Badge>}
+                                <p className="text-gray-600 mt-0.5">{ch.reason}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // Needs review
+                    if (unitResult?.status === "needs_review") {
+                      return (
+                        <div className="rounded-lg p-4 border-2 border-amber-300 bg-amber-50" data-testid="unit-rule-needs-review">
+                          <div className="flex items-start gap-3 mb-3">
+                            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-bold text-amber-800 text-sm">Unit Rule: Needs Attorney Review</p>
+                              <p className="text-xs text-amber-700 mt-0.5">{unitResult.summary}</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            {unitResult.charges.map((ch) => (
+                              <div key={ch.chargeNumber} className="bg-white rounded p-2 text-xs border border-amber-100">
+                                <span className="font-semibold text-amber-900">Charge {ch.chargeNumber}:</span>{" "}
+                                <span className="text-gray-700">{ch.description}</span>
+                                {ch.statute && <span className="text-gray-500"> ({ch.statute})</span>}
+                                {ch.isCannabis && <Badge variant="outline" className="ml-1 text-xs py-0 h-4 border-emerald-400 text-emerald-700">Cannabis — Exempt</Badge>}
+                                <p className="text-gray-500 mt-0.5">{ch.reason}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })()}
                 </div>
               )}
 
-              <div className="space-y-2">
-                <Label>Unit Rule Notes</Label>
-                <Textarea value={form.unitRuleNotes || ""} onChange={(e) => set("unitRuleNotes", e.target.value)} placeholder="Notes about unit rule considerations..." rows={3} />
-              </div>
+              {/* Show unit rule and auto-expunge info even before eligibility analysis is run,
+                  if auto-fill has been done */}
+              {!eligResult && (
+                <div className="space-y-4">
+                  {/* Unit Rule before main analysis */}
+                  {(() => {
+                    if (!unitResult) {
+                      return (
+                        <div className="rounded-lg p-4 border border-amber-300 bg-amber-50" data-testid="unit-rule-prompt-pre">
+                          <div className="flex items-start gap-3">
+                            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-semibold text-amber-800 text-sm">Unit Rule: Analysis Not Yet Available</p>
+                              <p className="text-sm text-amber-700 mt-1">
+                                Use <strong>Auto-Fill from Case Search</strong> on the Case Info tab to load all charges automatically and run the unit rule analysis.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
 
-              <div className="flex justify-end gap-2">
+                    if (unitResult.charges.length <= 1) {
+                      return (
+                        <div className="rounded-lg p-4 border border-emerald-300 bg-emerald-50" data-testid="unit-rule-single-pre">
+                          <div className="flex items-start gap-3">
+                            <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                            <p className="text-sm text-emerald-800 font-semibold">Unit Rule: Not Applicable — single charge</p>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (unitResult.status === "all_eligible") {
+                      return (
+                        <div className="rounded-lg p-4 border-2 border-emerald-300 bg-emerald-50" data-testid="unit-rule-all-eligible-pre">
+                          <div className="flex items-start gap-3 mb-3">
+                            <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-bold text-emerald-800 text-sm">Unit Rule: All Clear</p>
+                              <p className="text-xs text-emerald-700 mt-0.5">{unitResult.summary}</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            {unitResult.charges.map((ch) => (
+                              <div key={ch.chargeNumber} className="bg-white rounded p-2 text-xs border border-emerald-100">
+                                <span className="font-semibold text-emerald-900">Charge {ch.chargeNumber}:</span>{" "}
+                                <span className="text-gray-700">{ch.description}</span>
+                                {ch.statute && <span className="text-gray-500"> ({ch.statute})</span>}
+                                {ch.isCannabis && <Badge variant="outline" className="ml-1 text-xs py-0 h-4 border-emerald-400 text-emerald-700">Cannabis — Exempt</Badge>}
+                                <p className="text-gray-500 mt-0.5">{ch.reason}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (unitResult.status === "blocked") {
+                      const blockingCharge = unitResult.charges.find((ch) => !ch.eligible && !ch.isCannabis);
+                      return (
+                        <div className="rounded-lg p-4 border-2 border-red-300 bg-red-50" data-testid="unit-rule-blocked-pre">
+                          <div className="flex items-start gap-3 mb-3">
+                            <XCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-bold text-red-800 text-sm">Unit Rule: BLOCKED</p>
+                              {blockingCharge && (
+                                <p className="text-xs text-red-700 mt-0.5">
+                                  Charge {blockingCharge.chargeNumber} ({blockingCharge.description || blockingCharge.statute}) blocks the entire unit.
+                                </p>
+                              )}
+                              <p className="text-xs text-red-700 mt-1">{unitResult.summary}</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            {unitResult.charges.map((ch) => (
+                              <div key={ch.chargeNumber} className={`rounded p-2 text-xs border ${ch.eligible || ch.isCannabis ? "bg-white border-gray-100" : "bg-red-100 border-red-200"}`}>
+                                <span className="font-semibold">{ch.eligible || ch.isCannabis ? "✓" : "✗"} Charge {ch.chargeNumber}:</span>{" "}
+                                <span className="text-gray-700">{ch.description}</span>
+                                {ch.statute && <span className="text-gray-500"> ({ch.statute})</span>}
+                                {ch.isCannabis && <Badge variant="outline" className="ml-1 text-xs py-0 h-4 border-emerald-400 text-emerald-700">Cannabis — Exempt</Badge>}
+                                <p className="text-gray-600 mt-0.5">{ch.reason}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (unitResult.status === "needs_review") {
+                      return (
+                        <div className="rounded-lg p-4 border-2 border-amber-300 bg-amber-50" data-testid="unit-rule-needs-review-pre">
+                          <div className="flex items-start gap-3 mb-3">
+                            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-bold text-amber-800 text-sm">Unit Rule: Needs Attorney Review</p>
+                              <p className="text-xs text-amber-700 mt-0.5">{unitResult.summary}</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            {unitResult.charges.map((ch) => (
+                              <div key={ch.chargeNumber} className="bg-white rounded p-2 text-xs border border-amber-100">
+                                <span className="font-semibold text-amber-900">Charge {ch.chargeNumber}:</span>{" "}
+                                <span className="text-gray-700">{ch.description}</span>
+                                {ch.statute && <span className="text-gray-500"> ({ch.statute})</span>}
+                                {ch.isCannabis && <Badge variant="outline" className="ml-1 text-xs py-0 h-4 border-emerald-400 text-emerald-700">Cannabis — Exempt</Badge>}
+                                <p className="text-gray-500 mt-0.5">{ch.reason}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })()}
+
+                  <p className="text-sm text-muted-foreground">
+                    Click <strong>Analyze Eligibility</strong> above to run the full eligibility check for this case.
+                  </p>
+                </div>
+              )}
+
+              {/* Eligibility notes text area */}
+              {eligResult && (
+                <div className="space-y-2">
+                  <Label>Attorney Notes</Label>
+                  <Textarea
+                    value={form.eligibilityNotes || ""}
+                    onChange={(e) => set("eligibilityNotes", e.target.value)}
+                    rows={4}
+                    placeholder="Add any additional notes about eligibility..."
+                    data-testid="textarea-eligibility-notes"
+                  />
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outline" onClick={() => setTab("disposition")}>Previous</Button>
+                <Button onClick={() => { handleSave(); setTab("petition"); }} className="bg-[#01696F] hover:bg-[#015258]" data-testid="button-save-eligibility">Save & Continue</Button>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* ================================================================
+            TAB 4: PETITION
+        ================================================================ */}
         <TabsContent value="petition">
-          <PetitionView caseData={form} eligResult={eligResult} caseId={isNew ? null : parseInt(params.id!)} />
+          <Card>
+            <CardHeader><CardTitle className="text-base">Petition & Filing</CardTitle></CardHeader>
+            <CardContent className="space-y-6">
+              {!eligResult ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+                  <AlertTriangle className="w-4 h-4 inline-block mr-1 mb-0.5" />
+                  Please complete the Eligibility analysis before generating the petition.
+                </div>
+              ) : eligResult.status === "not_eligible" ? (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-800">
+                  <XCircle className="w-4 h-4 inline-block mr-1 mb-0.5" />
+                  This case is not currently eligible for expungement. Review the Eligibility tab for details.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                    <h3 className="font-semibold text-emerald-800 text-sm mb-2">Petition Ready to Generate</h3>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Form:</span>{" "}
+                        <span className="font-semibold">CC-DC-CR-{eligResult.form || "072A"}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Filing Fee:</span>{" "}
+                        <span className="font-semibold">{eligResult.fee || "$0"}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Court:</span>{" "}
+                        <span className="font-semibold">{form.courtType} Court — {form.county}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Defendant:</span>{" "}
+                        <span className="font-semibold">{form.defendantName}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <Button className="bg-[#01696F] hover:bg-[#015258]" data-testid="button-print-petition" onClick={() => window.print()}>
+                      <Printer className="w-4 h-4 mr-2" /> Print Petition
+                    </Button>
+                    <Button variant="outline" className="text-[#01696F] border-[#01696F]" data-testid="button-download-petition">
+                      <Download className="w-4 h-4 mr-2" /> Download PDF
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Case Summary / Filing Notes</Label>
+                    <Textarea
+                      value={form.unitRuleNotes || ""}
+                      onChange={(e) => set("unitRuleNotes", e.target.value)}
+                      rows={6}
+                      placeholder="Unit rule analysis and filing notes will appear here after Auto-Fill..."
+                      data-testid="textarea-unit-rule-notes"
+                    />
+                  </div>
+
+                  <div className="border rounded-lg p-4 bg-slate-50 space-y-2">
+                    <h4 className="font-semibold text-sm text-[#1B2A4A]">Filing Checklist</h4>
+                    <ul className="text-sm space-y-1 text-muted-foreground list-disc list-inside">
+                      <li>Complete all fields on the CC-DC-CR-{eligResult.form || "072A"} form</li>
+                      <li>Attach a copy of the charging document or docket sheet</li>
+                      {eligResult.fee && eligResult.fee !== "$0" && <li>Include the {eligResult.fee} filing fee (money order or cashier's check payable to Clerk of Circuit/District Court)</li>}
+                      <li>File in the {form.courtType} Court of {form.county} County</li>
+                      <li>Serve copies on all required agencies (State's Attorney, law enforcement agency of record)</li>
+                      {(form.dispositionType === "pbj" || form.dispositionType === "pbj_dui") && (
+                        <li>Attach proof of probation discharge</li>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setTab("eligibility")}>Previous</Button>
+                <Button onClick={handleSave} className="bg-[#01696F] hover:bg-[#015258]" data-testid="button-save-petition">
+                  <FileCheck className="w-4 h-4 mr-2" /> Save Case
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
-    </div>
-  );
-}
-
-function PetitionView({ caseData, eligResult, caseId }: { caseData: FormData; eligResult: EligibilityResult | null; caseId: number | null }) {
-  let formType = eligResult?.form || caseData.selectedForm || "072A";
-  // Route cannabis cases to 072D
-  if (caseData.dispositionType === "guilty_cannabis" && formType === "072B") formType = "072D";
-  const isGuiltyForm = formType === "072B" || formType === "072D";
-  const isEarlyForm = formType === "072C";
-
-  const arrestLabel = caseData.arrestType === "arrested" ? "arrested" : caseData.arrestType === "summons" ? "served with a summons" : "served with a citation";
-
-  const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
-
-  const handleDownloadForm = (ft: string) => {
-    if (!caseId) return;
-    window.open(`${API_BASE}/api/cases/${caseId}/form/${ft}`, "_blank");
-  };
-
-  const handlePrint = () => {
-    window.print();
-  };
-
-  return (
-    <div>
-      <div className="space-y-3 mb-4 print:hidden">
-        <div className="flex items-center justify-between">
-          <h2 className="font-bold text-[#1B2A4A]">Petition — Form CC-DC-CR-{formType}</h2>
-        </div>
-
-        {caseId ? (
-          <div className="bg-[#E6F4F4] border border-[#01696F]/20 rounded-lg p-4">
-            <p className="font-semibold text-[#1B2A4A] text-sm mb-3">Download Official Court Forms (Auto-Filled)</p>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => handleDownloadForm(formType)} className="bg-[#01696F] hover:bg-[#015258]" data-testid="button-download-petition">
-                <Download className="w-4 h-4 mr-2" /> Petition Form CC-DC-CR-{formType}
-              </Button>
-              {isEarlyForm && (
-                <Button onClick={() => handleDownloadForm("078")} variant="outline" className="border-[#01696F] text-[#01696F]" data-testid="button-download-waiver">
-                  <Download className="w-4 h-4 mr-2" /> General Waiver CC-DC-CR-078
-                </Button>
-              )}
-              <Button onClick={handlePrint} variant="outline" data-testid="button-print">
-                <Printer className="w-4 h-4 mr-2" /> Print Preview Below
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">These are the official Maryland court PDF forms with all fields and checkboxes auto-filled from this case's data. Print and file with the clerk.</p>
-          </div>
-        ) : (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-            Save the case first to enable official form downloads.
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white border rounded-lg p-8 shadow-sm print:shadow-none print:border-0 print:p-0 petition-page text-sm leading-relaxed" style={{ fontFamily: "'Times New Roman', serif" }}>
-        <div className="text-center mb-1 flex justify-between text-xs">
-          <span>☐ CIRCUIT COURT &nbsp;&nbsp; ☐ DISTRICT COURT OF MARYLAND FOR</span>
-        </div>
-        <div className="grid grid-cols-2 gap-4 text-xs mb-4 border-b pb-3">
-          <div><span className="text-muted-foreground">City/County: </span><strong>{caseData.county || "________________"}</strong></div>
-          <div><span className="text-muted-foreground">Case No.: </span><strong>{caseData.caseNumber || "________________"}</strong></div>
-          <div><span className="text-muted-foreground">Located at: </span>{"________________"}</div>
-          <div><span className="text-muted-foreground">Tracking #: </span>{"________________"}</div>
-          <div className="col-span-2"><span className="text-muted-foreground">Court Address: </span>{"________________"}</div>
-        </div>
-
-        <div className="text-center mb-4">
-          <p>STATE OF MARYLAND</p>
-          <p className="text-xs text-muted-foreground">vs.</p>
-          <p><strong>{caseData.defendantName || "________________"}</strong></p>
-          <p className="text-xs">DOB: {caseData.defendantDOB || "________________"}</p>
-        </div>
-
-        <h2 className="text-center font-bold mb-4 text-sm">
-          PETITION FOR EXPUNGEMENT OF RECORDS
-          {isGuiltyForm && <><br />(GUILTY DISPOSITION)</>}
-          {isEarlyForm && <><br />(LESS THAN 3 YEARS HAS PASSED SINCE DISPOSITION)</>}
-          {!isGuiltyForm && !isEarlyForm && <><br />(ACQUITTAL, DISMISSAL, PROBATION BEFORE JUDGMENT, NOLLE PROSEQUI, STET, OR NOT CRIMINALLY RESPONSIBLE)</>}
-        </h2>
-
-        <div className="space-y-3 text-sm">
-          <p>
-            1. On or about <u>{caseData.dispositionDate ? new Date(caseData.dispositionDate + "T12:00:00").toLocaleDateString() : "________________"}</u>, I was{" "}
-            <strong>{arrestLabel}</strong> by an officer of the{" "}
-            <u>{caseData.lawEnforcementAgency || "________________"}</u>{" "}
-            at <u>{caseData.incidentLocation || "________________"}</u>, Maryland, as a result of the following incident:{" "}
-            <u>{caseData.incidentDescription || "________________"}</u>.
-          </p>
-
-          <p>2. I was charged with the offense of <u>{caseData.offenseDescription || "________________"}</u>.</p>
-
-          <p>3. On or about <u>{caseData.dispositionDate ? new Date(caseData.dispositionDate + "T12:00:00").toLocaleDateString() : "________________"}</u>, the charge was disposed of as follows:</p>
-
-          <div className="ml-4 space-y-2">
-            {!isGuiltyForm && (
-              <>
-                <p>{caseData.dispositionType === "acquittal" ? "☑" : "☐"} I was acquitted/found not guilty of the charge.</p>
-                <p>{caseData.dispositionType === "dismissal" ? "☑" : "☐"} The charge was otherwise dismissed.</p>
-                <p>{caseData.dispositionType === "pbj_no_longer_crime" ? "☑" : "☐"} A probation before judgment was entered on the charge, but the conduct on which the charge was based is no longer a crime.</p>
-                <p>{caseData.dispositionType === "pbj" ? "☑" : "☐"} A probation before judgment was entered on the charge, and the conduct on which the charge was based is still a crime.</p>
-                <p>{caseData.dispositionType === "pbj_dui" ? "☑" : "☐"} A probation before judgment was entered on violation of Transportation Law Article § 21-902 (a) or (b).</p>
-                <p>{caseData.dispositionType === "nolle_prosequi" ? "☑" : "☐"} A nolle prosequi was entered.</p>
-                <p>{caseData.dispositionType === "stet" ? "☑" : "☐"} A stet was entered.</p>
-                <p>{caseData.dispositionType === "not_criminally_responsible" ? "☑" : "☐"} I was found not criminally responsible.</p>
-              </>
-            )}
-            {isGuiltyForm && (
-              <>
-                <p>{caseData.dispositionType === "guilty_no_longer_crime" ? "☑" : "☐"} The charge/offense, but the conduct on which the charge/offense is based is no longer a crime.</p>
-                <p>{caseData.dispositionType === "guilty_nuisance" ? "☑" : "☐"} A crime specified in Criminal Procedure Article, § 10-105(a)(9).</p>
-                <p>{caseData.dispositionType === "guilty_cannabis" ? "☑" : "☐"} Cannabis possession under Criminal Law Article § 5-601.</p>
-                <p>{caseData.dispositionType === "guilty_misdemeanor" ? "☑" : "☐"} A misdemeanor crime specified in Criminal Procedure Article, § 10-110. Five (5) years have passed since the completion of the sentence(s).</p>
-                <p>{caseData.dispositionType === "guilty_felony" ? "☑" : "☐"} A felony crime specified in Criminal Procedure Article, § 10-110, a crime specified in Criminal Law Article § 3-203, or common law battery. Seven (7) years have passed since sentence completion.</p>
-                <p>{caseData.dispositionType === "guilty_burglary_theft" ? "☑" : "☐"} First or second degree burglary or felony theft. Ten years have passed since sentence completion.</p>
-                <p>{caseData.dispositionType === "guilty_domestic" ? "☑" : "☐"} A domestically related crime under Criminal Procedure Article, § 6-233. Fifteen years have passed since sentence completion.</p>
-                <p>{caseData.dispositionType === "guilty_pardon" ? "☑" : "☐"} I was granted a full and unconditional pardon by the Governor.</p>
-              </>
-            )}
-          </div>
-
-          {caseData.dispositionType === "compromise" && (
-            <p>4. ☑ The case was compromised or dismissed pursuant to Criminal Law Article, § 3-207.</p>
-          )}
-
-          <p className="mt-4">I am not now a defendant in any pending criminal action.</p>
-
-          <p className="mt-4">I request the court to enter an Order for Expungement of all police and court records pertaining to the above {isGuiltyForm ? "conviction(s)" : "arrest, detention, confinement, and/or charges"}.</p>
-
-          <p className="mt-4">I solemnly affirm under the penalties of perjury that the contents of this petition are true to the best of my knowledge, information, and belief, and that the charge to which this petition relates is not part of a unit the expungement of which is precluded under Criminal Procedure Article, § 10-107.</p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-8 mt-8 text-xs">
-          <div className="space-y-3">
-            <p className="font-bold">Attorney</p>
-            <div className="border-b border-black h-6"></div>
-            <p className="text-muted-foreground">Signature of Attorney</p>
-            <p>Attorney Number: ________________</p>
-            <p>Date: ________________</p>
-            <p>Printed Name: ________________</p>
-            <p>Firm: Innovate Criminal Defense Lawyers</p>
-            <p>Address: ________________</p>
-            <p>Telephone: ________________</p>
-            <p>Email: ________________</p>
-          </div>
-          <div className="space-y-3">
-            <p className="font-bold">Defendant</p>
-            <div className="border-b border-black h-6"></div>
-            <p className="text-muted-foreground">Signature of Defendant</p>
-            <p>Date: ________________</p>
-            <p>Printed Name: {caseData.defendantName || "________________"}</p>
-            <p>Address: {caseData.defendantAddress || "________________"}</p>
-            <p>{caseData.defendantCity || "________________"}, {caseData.defendantState || "MD"} {caseData.defendantZip || "________________"}</p>
-            <p>Telephone: {caseData.defendantPhone || "________________"}</p>
-            <p>Email: {caseData.defendantEmail || "________________"}</p>
-          </div>
-        </div>
-
-        <p className="text-xs text-center text-muted-foreground mt-6">CC-DC-CR-{formType}</p>
-
-        {isEarlyForm && (
-          <div className="mt-8 pt-6 border-t">
-            <h3 className="text-center font-bold text-sm mb-4">GENERAL WAIVER AND RELEASE<br />(Criminal Procedure § 10-105)</h3>
-            <p className="text-sm">
-              I, <u>{caseData.defendantName || "________________"}</u>, release and forever discharge{" "}
-              <u>________________</u> (Complainant), and the{" "}
-              <u>{caseData.lawEnforcementAgency || "________________"}</u>, all of its officers, agents, and employees, and any and all other persons from any and all tort claims which I may have for wrongful conduct by reason of my arrest, detention, or confinement on or about{" "}
-              <u>{caseData.dispositionDate ? new Date(caseData.dispositionDate + "T12:00:00").toLocaleDateString() : "________________"}</u>.
-            </p>
-            <p className="text-sm mt-3">This General Waiver and Release is conditioned on the expungement of the record of my arrest, detention, or confinement and compliance with Code, Criminal Procedure Article, § 10-105, as applicable, and shall be void if these conditions are not met.</p>
-            <div className="grid grid-cols-2 gap-8 mt-6 text-xs">
-              <div className="space-y-2">
-                <div className="border-b border-black h-6"></div>
-                <p className="text-muted-foreground">Petitioner Signature</p>
-              </div>
-              <div className="space-y-2">
-                <div className="border-b border-black h-6"></div>
-                <p className="text-muted-foreground">Witness Signature</p>
-                <p>Printed Name of Witness: ________________</p>
-              </div>
-            </div>
-            <p className="text-xs text-center text-muted-foreground mt-4">CC-DC-CR-078</p>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
