@@ -43,23 +43,43 @@ function clean(s: string): string {
   return s.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 }
 
+function stripTags(s: string): string {
+  return s.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+}
+
 function extractAfterLabel(html: string, label: string): string {
-  // Try multiple patterns for extracting values after labels in MD Case Search HTML
+  // The new MD Case Search portal (March 2026) is a React SPA.
+  // Data is rendered in various patterns. Try many approaches.
   const patterns = [
-    // Pattern: <span class="Label">Label</span></td><td><span class="Value">VALUE</span>
+    // New portal: label in one element, value in next sibling div/span
+    new RegExp(label + '[:\\s]*</(?:span|div|label|dt|th|td|p)>\\s*<(?:span|div|dd|td|p)[^>]*>\\s*([^<]+)', 'i'),
+    // New portal: label and value in same parent, separated by tags
+    new RegExp(label + '[:\\s]*</[^>]+>\\s*<[^>]+>\\s*<[^>]+>\\s*([^<]+)', 'i'),
+    // Classic table: Label</span></td><td><span>VALUE</span>
     new RegExp(label + '[:\\s]*</span>\\s*</td>\\s*<td[^>]*>\\s*<span[^>]*>([^<]+)', 'i'),
-    // Pattern: <td class="Label">Label</td><td class="Value">VALUE</td>
+    // Classic: Label</td><td>VALUE</td>
     new RegExp(label + '[:\\s]*</td>\\s*<td[^>]*>\\s*([^<]+)', 'i'),
-    // Pattern: Label:</b> VALUE
+    // Bold label: Label:</b> VALUE
     new RegExp(label + '[:\\s]*</b>\\s*([^<]+)', 'i'),
-    // Pattern: Label: VALUE (plain text after label)
-    new RegExp(label + '[:\\s]+([^<\\n]+)', 'i'),
+    // Strong label
+    new RegExp(label + '[:\\s]*</strong>\\s*([^<]+)', 'i'),
+    // Aria-label or data attribute patterns
+    new RegExp('aria-label="[^"]*' + label + '[^"]*"[^>]*>([^<]+)', 'i'),
+    // Plain text after label with colon
+    new RegExp(label + ':\\s*([^<,\\n]{2,50})', 'i'),
   ];
   for (const p of patterns) {
     const m = html.match(p);
     if (m && m[1]) {
       const val = clean(m[1]);
-      if (val && val !== 'N/A' && val !== '') return val;
+      // Filter out JavaScript/CSS fragments
+      if (val && val !== 'N/A' && val !== '' && 
+          !val.includes('function') && !val.includes('==') && 
+          !val.includes('{') && !val.includes('visibility') &&
+          !val.includes('undefined') && !val.includes('document.') &&
+          val.length < 200) {
+        return val;
+      }
     }
   }
   return "";
@@ -293,14 +313,24 @@ export async function lookupCase(caseNumber: string): Promise<CaseSearchResult> 
       charges: [],
     };
 
-    // Defendant info
-    const defName = extractAfterLabel(html, "Defendant Name") || 
-                    extractAfterLabel(html, "Name") ||
-                    extractAfterLabel(html, "Party Name");
+    // Defendant info — try multiple extraction strategies
+    // Strategy 1: Look for "State of Maryland vs NAME" pattern (common in page title/header)
+    let defName = "";
+    const vsMatch = html.match(/(?:State of Maryland|STATE OF MARYLAND)\s+vs?\.?\s+([A-Z][A-Z\s,.'\-]+?)(?:<|"|\n|\||&lt;)/i);
+    if (vsMatch) {
+      defName = vsMatch[1].trim().replace(/\s+/g, ' ');
+      // Filter out garbage
+      if (defName.includes('{') || defName.includes('function') || defName.length > 100) defName = "";
+    }
+    // Strategy 2: Standard label extraction
+    if (!defName) defName = extractAfterLabel(html, "Defendant Name");
+    if (!defName) defName = extractAfterLabel(html, "Party Name");
+    if (!defName) defName = extractAfterLabel(html, "Defendant");
     const defDOB = extractAfterLabel(html, "Date of Birth") || extractAfterLabel(html, "DOB");
-    const defAddr = extractAfterLabel(html, "Address") || extractAfterLabel(html, "Street Address");
+    const defAddr = extractAfterLabel(html, "Street Address") || extractAfterLabel(html, "Address Line 1");
     const defCity = extractAfterLabel(html, "City");
-    const defState = extractAfterLabel(html, "State");
+    // Don't use plain "State" as it matches "State of Maryland"
+    const defState = extractAfterLabel(html, "State:") || "MD";
     const defZip = extractAfterLabel(html, "Zip Code");
     
     if (defName) {
@@ -351,6 +381,15 @@ export async function lookupCase(caseNumber: string): Promise<CaseSearchResult> 
       };
     }
 
+    // Log what we extracted for debugging
+    console.log(`[CaseSearch] Defendant: ${result.defendant?.name || 'NOT FOUND'}`);
+    console.log(`[CaseSearch] DOB: ${defDOB || 'NOT FOUND'}`);
+    console.log(`[CaseSearch] County: ${result.caseInfo?.county || 'NOT FOUND'}`);
+    console.log(`[CaseSearch] Charges: ${result.charges.length}`);
+    console.log(`[CaseSearch] Law Enforcement: ${result.lawEnforcement || 'NOT FOUND'}`);
+    // Also log a text dump of the page for debugging
+    const allText = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, '|').replace(/\|+/g, '|').replace(/\s+/g, ' ').trim();
+    console.log(`[CaseSearch] Page text (first 3000): ${allText.substring(0, 3000)}`);
     console.log(`[CaseSearch] Success: ${result.defendant?.name || 'Unknown'}, ${result.charges.length} charges`);
     return result;
     
