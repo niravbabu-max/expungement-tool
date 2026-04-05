@@ -968,8 +968,8 @@ function PetitionView({ caseData, eligResult, caseId }: { caseData: FormData; el
             <p>Firm: Innovate Legal Group</p>
             <p>Address: 3030 Greenmount Ave, Suite 320</p>
             <p>Baltimore, MD 21218</p>
-            <p>Telephone: ________________</p>
-            <p>Email: ________________</p>
+            <p>Telephone: 301-971-4880</p>
+            <p>Email: nirav@innovatelegalgroup.com</p>
           </div>
           <div className="space-y-3">
             <p className="font-bold">Defendant</p>
