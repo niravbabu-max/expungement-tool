@@ -200,12 +200,15 @@ async function scrapflyFetch(url: string, apiKey: string): Promise<string> {
     url: url,
     asp: 'true',
     render_js: 'true',
-    rendering_wait: '5000',
+    rendering_wait: '10000',
     country: 'us',
+    retry: 'false',
+    timeout: '90000',
+    proxy_pool: 'public_residential_pool',
   }).toString();
   
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 90000);
+  const timer = setTimeout(() => controller.abort(), 120000);
   
   try {
     const response = await fetch(scrapflyUrl, { signal: controller.signal });
