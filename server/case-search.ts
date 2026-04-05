@@ -37,6 +37,8 @@ export interface CaseSearchResult {
   lawEnforcement?: string;
   arrestDate?: string;
   probationEndDate?: string;
+  courtLocation?: string;  // raw Location value from Case Search (e.g., "Greenbelt");
+  courtSystem?: string;    // Court System value (e.g., "District Court - Criminal")
   rawHtml?: string; // for debugging
 }
 
@@ -373,32 +375,93 @@ export async function lookupCase(caseNumber: string): Promise<CaseSearchResult> 
     // Case info — new portal uses pipe-separated label|value format in rendered text
     const caseType = extractAfterLabel(html, "Case Type") || extractAfterLabel(html, "CaseType") || "";
     
-    // County: new portal shows "Location:" with the city name. Map known locations to counties.
-    let county = parseCountyFromHtml(html, cleanNum);
-    // Upper Marlboro = Prince George's
+    // County: Extract from Court System field AND from raw HTML text
+    // The new portal renders: "Court System:|District Court - Criminal|Location:|Upper Marlboro|"
+    // or "Court System:|Circuit Court For Prince Georges County - Criminal|"
+    let county = "";
+    
+    // Strategy 1: Look for "Court For XXX County" anywhere in the HTML (most reliable)
+    const countyFromCourt = html.match(/Court\s+(?:For|for|of)\s+([A-Za-z' .]+?)\s+County/i);
+    if (countyFromCourt) {
+      let extracted = countyFromCourt[1].trim();
+      // Normalize county names
+      if (extracted.toLowerCase().includes("prince george")) extracted = "Prince George's";
+      else if (extracted.toLowerCase().includes("st. mary") || extracted.toLowerCase().includes("st mary")) extracted = "St. Mary's";
+      else if (extracted.toLowerCase().includes("queen anne")) extracted = "Queen Anne's";
+      else if (extracted.toLowerCase().includes("anne arundel")) extracted = "Anne Arundel";
+      county = extracted;
+      console.log(`[CaseSearch] County from Court System: ${county}`);
+    }
+    
+    // Strategy 2: Check for Baltimore City specifically
+    if (!county && html.toLowerCase().includes("baltimore city")) {
+      county = "Baltimore City";
+      console.log(`[CaseSearch] County: Baltimore City (from HTML)`);
+    }
+    
+    // Strategy 3: Try extractAfterLabel
+    if (!county) {
+      const courtSystemVal = extractAfterLabel(html, "Court System");
+      if (courtSystemVal) {
+        const m = courtSystemVal.match(/(?:for|of)\s+([A-Za-z' .]+?)\s+(?:County|City)/i);
+        if (m) {
+          let extracted = m[1].trim();
+          if (extracted.toLowerCase().includes("prince george")) extracted = "Prince George's";
+          if (extracted.toLowerCase().includes("st. mary") || extracted.toLowerCase().includes("st mary")) extracted = "St. Mary's";
+          if (extracted.toLowerCase().includes("queen anne")) extracted = "Queen Anne's";
+          county = extracted;
+        }
+      }
+    }
+    
+    // Next try Location field mapping
     const locationVal = extractAfterLabel(html, "Location");
     if (!county && locationVal) {
       const locMap: Record<string, string> = {
+        // Prince George's County
         "upper marlboro": "Prince George's", "hyattsville": "Prince George's",
+        "greenbelt": "Prince George's", "college park": "Prince George's",
+        "bowie": "Prince George's", "laurel": "Prince George's",
+        "landover": "Prince George's", "capitol heights": "Prince George's",
+        "district heights": "Prince George's", "suitland": "Prince George's",
+        "temple hills": "Prince George's", "fort washington": "Prince George's",
+        "clinton": "Prince George's", "oxon hill": "Prince George's",
+        "glenarden": "Prince George's", "new carrollton": "Prince George's",
+        "prince george": "Prince George's",
+        // Baltimore
         "baltimore": "Baltimore City", "towson": "Baltimore County",
+        "catonsville": "Baltimore County", "essex": "Baltimore County",
+        "dundalk": "Baltimore County", "pikesville": "Baltimore County",
+        // Anne Arundel
         "annapolis": "Anne Arundel", "glen burnie": "Anne Arundel",
+        "severna park": "Anne Arundel", "odenton": "Anne Arundel",
+        // Montgomery
         "rockville": "Montgomery", "silver spring": "Montgomery",
-        "bel air": "Harford", "ellicott city": "Howard",
+        "germantown": "Montgomery", "bethesda": "Montgomery",
+        "gaithersburg": "Montgomery",
+        // Howard
+        "ellicott city": "Howard", "columbia": "Howard",
+        // Harford
+        "bel air": "Harford", "aberdeen": "Harford",
+        // Other counties
         "frederick": "Frederick", "hagerstown": "Washington",
         "salisbury": "Wicomico", "cambridge": "Dorchester",
-        "la plata": "Charles", "leonardtown": "St. Mary's",
-        "prince frederick": "Calvert", "chestertown": "Kent",
-        "elkton": "Cecil", "westminster": "Carroll",
-        "oakland": "Garrett", "cumberland": "Allegany",
-        "easton": "Talbot", "centreville": "Queen Anne's",
-        "princess anne": "Somerset", "snow hill": "Worcester",
-        "denton": "Caroline",
+        "la plata": "Charles", "waldorf": "Charles",
+        "leonardtown": "St. Mary's", "prince frederick": "Calvert",
+        "chestertown": "Kent", "elkton": "Cecil",
+        "westminster": "Carroll", "oakland": "Garrett",
+        "cumberland": "Allegany", "easton": "Talbot",
+        "centreville": "Queen Anne's", "princess anne": "Somerset",
+        "snow hill": "Worcester", "denton": "Caroline",
+        "ocean city": "Worcester",
       };
       const locLower = locationVal.toLowerCase();
       for (const [city, cnty] of Object.entries(locMap)) {
         if (locLower.includes(city)) { county = cnty; break; }
       }
     }
+    // Fallback: try raw HTML scanning and case number district code
+    if (!county) county = parseCountyFromHtml(html, cleanNum);
     
     result.caseInfo = {
       caseNumber: cleanNum,
@@ -415,6 +478,8 @@ export async function lookupCase(caseNumber: string): Promise<CaseSearchResult> 
                             extractAfterLabel(html, "Law Enforcement Agency") ||
                             extractAfterLabel(html, "Officer");
     result.arrestDate = toISODate(extractAfterLabel(html, "Arrest Date") || extractAfterLabel(html, "Date of Arrest"));
+    result.courtLocation = locationVal || extractAfterLabel(html, "Location") || "";
+    result.courtSystem = extractAfterLabel(html, "Court System") || "";
 
     // Extract PBJ end date if present (format: "PBJ END DATE : MM/DD/YYYY")
     const pbjMatch = html.match(/PBJ\s+END\s+DATE\s*:?\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
