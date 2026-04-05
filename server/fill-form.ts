@@ -5,6 +5,14 @@ import type { ExpungementCase } from "@shared/schema";
 
 const FORMS_DIR = path.join(process.cwd(), "server", "forms");
 
+// Firm details — pre-filled on every petition
+const FIRM_NAME = "Innovate Legal Group";
+const ATTORNEY_NAME = "Nirav Babu, Esq.";
+const ATTORNEY_SIGNATURE = "/s/ Nirav Babu";
+const ATTORNEY_NUMBER = "0606130009";
+const FIRM_ADDRESS = "3030 Greenmount Ave, Suite 320";
+const FIRM_CITY_STATE_ZIP = "Baltimore, MD 21218";
+
 function fmtDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "";
   const d = new Date(dateStr + "T12:00:00");
@@ -69,8 +77,17 @@ async function fill072A(c: ExpungementCase): Promise<Uint8Array> {
   set("Defendant Telephone Number", c.defendantPhone || "");
   set("Defendant E-mail", c.defendantEmail || "");
 
-  // Attorney block (leave mostly blank for manual fill)
-  set("Attorney Printed Name", "");
+  // Attorney block
+  set("Attorney Printed Name", ATTORNEY_NAME);
+  try { form.getTextField("Signature of Attorney").setText(ATTORNEY_SIGNATURE); } catch {}
+  try { form.getTextField("Attorney Number").setText(ATTORNEY_NUMBER); } catch {}
+  try { form.getTextField("Attorney Address").setText(FIRM_ADDRESS); } catch {}
+  try { form.getTextField("Attorney City, State, Zip").setText(FIRM_CITY_STATE_ZIP); } catch {}
+  try { form.getTextField("Attorney Firm").setText(FIRM_NAME); } catch {}
+  try { form.getTextField("Attorney E-mail").setText(""); } catch {}
+  try { form.getTextField("Printed Name").setText(ATTORNEY_NAME); } catch {}
+  try { form.getTextField("Address").setText(FIRM_ADDRESS); } catch {}
+  try { form.getTextField("City, State, Zip").setText(FIRM_CITY_STATE_ZIP); } catch {}
 
   form.flatten();
   return await pdf.save();
