@@ -33,6 +33,95 @@ const empty: FormData = {
 const isGuilty = (dt: string | null | undefined) =>
   dt?.startsWith("guilty_") || false;
 
+function mapDispositionText(rawDisp: string): string {
+  const d = rawDisp.toLowerCase();
+  if (d.includes('probation before judgment') || d.includes('pbj')) return 'pbj';
+  if (d.includes('nolle prosequi') || d.includes('nol pros')) return 'nolle_prosequi';
+  if (d.includes('not guilty') || d.includes('acquit')) return 'acquittal';
+  if (d.includes('stet')) return 'stet';
+  if (d.includes('dismiss')) return 'dismissal';
+  if (d.includes('not criminally responsible')) return 'not_criminally_responsible';
+  if (d.includes('guilty') || d.includes('convicted')) return 'guilty_misdemeanor';
+  return '';
+}
+
+function buildUnitRuleAnalysis(charges: Array<{ chargeNumber: number; description: string; statute: string; disposition: string; dispositionDate: string; sentence?: string }>): string {
+  if (!charges || charges.length <= 1) return "Single charge — unit rule does not apply.";
+
+  const lines: string[] = [`UNIT RULE ANALYSIS (${charges.length} charges in this case)\n`];
+  let allEligible = true;
+  let hasBlockingCharge = false;
+  let blockingReason = "";
+
+  for (const ch of charges) {
+    const dispType = ch.disposition ? mapDispositionText(ch.disposition) : '';
+    const isCannabis = (ch.description || '').toLowerCase().includes('cannabis') || 
+                       (ch.description || '').toLowerCase().includes('marijuana') ||
+                       (ch.statute || '').includes('5-601');
+    
+    // Determine if this individual charge is eligible
+    let chargeEligible = false;
+    let note = '';
+
+    if (['acquittal', 'dismissal', 'nolle_prosequi', 'stet', 'not_criminally_responsible'].includes(dispType)) {
+      chargeEligible = true;
+      note = `Eligible (${ch.disposition})`;
+    } else if (dispType === 'pbj') {
+      chargeEligible = true; // PBJ is generally eligible
+      note = `Eligible (PBJ — verify waiting period)`;
+    } else if (dispType.startsWith('guilty') || dispType === 'guilty_misdemeanor') {
+      // Guilty — need to check if the offense is on the eligible list
+      // For now, flag as needing review unless it's a known eligible offense
+      const desc = (ch.description || '').toLowerCase();
+      const stat = (ch.statute || '').toLowerCase();
+      
+      // Common eligible offenses
+      if (desc.includes('assault') && desc.includes('second') || stat.includes('3-203') || stat.includes('3.203')) {
+        note = 'Potentially eligible (Assault 2nd — 7yr wait, § 10-110)';
+        chargeEligible = true; // eligible with waiting period
+      } else if (desc.includes('cds') || desc.includes('possess') || stat.includes('5-601')) {
+        note = 'Potentially eligible (CDS possession — 5yr wait)';
+        chargeEligible = true;
+      } else if (desc.includes('theft') && !desc.includes('armed')) {
+        note = 'Potentially eligible (Theft — check if felony/misdemeanor)';
+        chargeEligible = true;
+      } else if (desc.includes('trespass') || desc.includes('disorderly')) {
+        note = 'Potentially eligible (5yr wait)';
+        chargeEligible = true;
+      } else {
+        // Unknown guilty offense — could be non-eligible
+        note = 'NEEDS REVIEW — guilty conviction, attorney must verify if offense is on eligible list';
+        chargeEligible = false;
+        hasBlockingCharge = true;
+        blockingReason = `Charge ${ch.chargeNumber} (${ch.description}) — guilty conviction needs attorney review to confirm eligible offense`;
+      }
+    } else {
+      note = 'Unknown disposition — needs review';
+      chargeEligible = false;
+      hasBlockingCharge = true;
+      blockingReason = `Charge ${ch.chargeNumber} — unknown disposition`;
+    }
+
+    if (!chargeEligible && !isCannabis) allEligible = false;
+
+    const cannabisNote = isCannabis ? ' [CANNABIS — EXEMPT from unit rule]' : '';
+    lines.push(`Charge ${ch.chargeNumber}: ${ch.description || 'Unknown'} (${ch.statute || 'No statute'})`);
+    lines.push(`  Disposition: ${ch.disposition || 'Unknown'} ${ch.dispositionDate ? '(' + ch.dispositionDate + ')' : ''}`);
+    lines.push(`  Status: ${note}${cannabisNote}\n`);
+  }
+
+  lines.push('---');
+  if (allEligible) {
+    lines.push('UNIT RULE RESULT: ✓ ALL charges appear eligible. Unit rule does NOT block expungement.');
+  } else if (hasBlockingCharge) {
+    lines.push(`UNIT RULE RESULT: ⚠ POTENTIAL BLOCK — ${blockingReason}`);
+    lines.push('If any non-cannabis charge in the unit is not eligible, the entire unit is blocked (CP § 10-107).');
+    lines.push('Attorney must verify before filing.');
+  }
+
+  return lines.join('\n');
+}
+
 export default function CaseForm() {
   const params = useParams<{ id: string }>();
   const isNew = !params.id || params.id === "new";
@@ -93,11 +182,18 @@ export default function CaseForm() {
         if (data.caseInfo.county) updates.county = data.caseInfo.county;
       }
       if (data.lawEnforcement) updates.lawEnforcementAgency = data.lawEnforcement;
-      // Use the first charge for now (most common single-charge cases)
+      // Store ALL charges as JSON for unit rule analysis
       if (data.charges && data.charges.length > 0) {
+        // Build combined offense description from all charges
+        updates.offenseDescription = data.charges.map((ch: any, i: number) => {
+          const parts = [`Charge ${i+1}: ${ch.description || 'Unknown'}`];
+          if (ch.statute) parts[0] += ` (${ch.statute})`;
+          if (ch.disposition) parts[0] += ` — ${ch.disposition}`;
+          return parts[0];
+        }).join("; ");
+
+        // Use the first charge's disposition for the primary dropdown
         const c = data.charges[0];
-        if (c.description) updates.offenseDescription = data.charges.map((ch: any) => ch.description).filter(Boolean).join("; ");
-        // Map Case Search disposition text to our dropdown values
         if (c.disposition) {
           const d = c.disposition.toLowerCase();
           if (d.includes('probation before judgment') || d.includes('pbj')) updates.dispositionType = 'pbj';
@@ -109,6 +205,9 @@ export default function CaseForm() {
           else if (d.includes('guilty') || d.includes('convicted')) updates.dispositionType = 'guilty_misdemeanor';
         }
         if (c.dispositionDate) updates.dispositionDate = c.dispositionDate;
+
+        // Store all charges as JSON for unit rule analysis
+        updates.unitRuleNotes = buildUnitRuleAnalysis(data.charges);
       }
       if (data.arrestDate) updates.incidentDescription = `Arrest date: ${data.arrestDate}`;
       // Auto-fill probation discharge date from PBJ end date
@@ -406,15 +505,29 @@ export default function CaseForm() {
                     )}
                   </div>
 
-                  <div className="rounded-lg p-4 bg-amber-50 border border-amber-200">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                      <div className="text-sm text-amber-800">
-                        <p className="font-semibold">Unit Rule Warning</p>
-                        <p>The Unit Rule (CP § 10-107) may affect eligibility. If this case is part of a unit with other charges from the same incident, ALL charges in the unit must be independently eligible for expungement. Attorney must verify before filing.</p>
+                  {form.unitRuleNotes && form.unitRuleNotes.includes('UNIT RULE ANALYSIS') ? (
+                    <div className={`rounded-lg p-4 border ${form.unitRuleNotes.includes('ALL charges appear eligible') ? 'bg-emerald-50 border-emerald-200' : form.unitRuleNotes.includes('POTENTIAL BLOCK') ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+                      <div className="flex items-start gap-2">
+                        {form.unitRuleNotes.includes('ALL charges appear eligible') ? 
+                          <CheckCircle className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" /> :
+                          <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />}
+                        <div className="text-sm">
+                          <p className="font-semibold mb-2">{form.unitRuleNotes.includes('ALL charges appear eligible') ? 'Unit Rule: All Clear' : form.unitRuleNotes.includes('POTENTIAL BLOCK') ? 'Unit Rule: Potential Block' : 'Unit Rule Analysis'}</p>
+                          <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed">{form.unitRuleNotes}</pre>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="rounded-lg p-4 bg-amber-50 border border-amber-200">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                        <div className="text-sm text-amber-800">
+                          <p className="font-semibold">Unit Rule Warning</p>
+                          <p>The Unit Rule (CP § 10-107) may affect eligibility. If this case is part of a unit with other charges from the same incident, ALL charges in the unit must be independently eligible for expungement. Attorney must verify before filing.</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {(eligResult.status === "eligible" || eligResult.status === "needs_review") && eligResult.form && (
                     <Button onClick={() => { handleSave(); setTab("petition"); }} className="bg-[#01696F] hover:bg-[#015258]" data-testid="button-generate-petition">
