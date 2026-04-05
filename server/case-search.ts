@@ -36,6 +36,7 @@ export interface CaseSearchResult {
   }>;
   lawEnforcement?: string;
   arrestDate?: string;
+  probationEndDate?: string;
   rawHtml?: string; // for debugging
 }
 
@@ -45,6 +46,18 @@ function clean(s: string): string {
 
 function stripTags(s: string): string {
   return s.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+}
+
+function toISODate(dateStr: string): string {
+  // Convert MM/DD/YYYY to YYYY-MM-DD for HTML date inputs
+  if (!dateStr) return "";
+  const m = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) {
+    return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+  }
+  // Already YYYY-MM-DD?
+  if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) return dateStr;
+  return dateStr;
 }
 
 function extractAfterLabel(html: string, label: string): string {
@@ -174,8 +187,9 @@ function parseCharges(html: string): CaseSearchResult["charges"] {
                       extractAfterLabel(section, "CJIS Code");
       const disp = extractAfterLabel(section, "Disposition") ||
                    extractAfterLabel(section, "Plea");
-      const dispDate = extractAfterLabel(section, "Disposition Date") ||
-                       extractAfterLabel(section, "DispositionDate");
+      const dispDateRaw = extractAfterLabel(section, "Disposition Date") ||
+                          extractAfterLabel(section, "DispositionDate");
+      const dispDate = toISODate(dispDateRaw);
       const sentence = extractAfterLabel(section, "Sentence") ||
                        extractAfterLabel(section, "Sentence Length") ||
                        extractAfterLabel(section, "Fine Amount");
@@ -209,7 +223,7 @@ function parseCharges(html: string): CaseSearchResult["charges"] {
     const desc = extractAfterLabel(html, "Charge Description") || extractAfterLabel(html, "Charge");
     const statute = extractAfterLabel(html, "Statute Code") || extractAfterLabel(html, "Statute");
     const disp = extractAfterLabel(html, "Disposition");
-    const dispDate = extractAfterLabel(html, "Disposition Date");
+    const dispDate = toISODate(extractAfterLabel(html, "Disposition Date"));
     
     if (desc || statute) {
       charges.push({
@@ -337,7 +351,8 @@ export async function lookupCase(caseNumber: string): Promise<CaseSearchResult> 
     if (!defName) defName = extractAfterLabel(html, "Defendant Name");
     if (!defName) defName = extractAfterLabel(html, "Party Name");
     if (!defName) defName = extractAfterLabel(html, "Defendant");
-    const defDOB = extractAfterLabel(html, "Date of Birth") || extractAfterLabel(html, "DOB");
+    const defDOBRaw = extractAfterLabel(html, "Date of Birth") || extractAfterLabel(html, "DOB");
+    const defDOB = toISODate(defDOBRaw);
     const defAddr = extractAfterLabel(html, "Street Address") || extractAfterLabel(html, "Address Line 1");
     const defCity = extractAfterLabel(html, "City");
     // Don't use plain "State" as it matches "State of Maryland"
@@ -390,7 +405,7 @@ export async function lookupCase(caseNumber: string): Promise<CaseSearchResult> 
       caseType: caseType,
       courtType: parseCourtType(cleanNum, html),
       county: county,
-      filingDate: extractAfterLabel(html, "Filing Date"),
+      filingDate: toISODate(extractAfterLabel(html, "Filing Date")),
       status: extractAfterLabel(html, "Case Status") || extractAfterLabel(html, "Case Disposition"),
     };
 
@@ -399,7 +414,14 @@ export async function lookupCase(caseNumber: string): Promise<CaseSearchResult> 
                             extractAfterLabel(html, "Arresting Agency") || 
                             extractAfterLabel(html, "Law Enforcement Agency") ||
                             extractAfterLabel(html, "Officer");
-    result.arrestDate = extractAfterLabel(html, "Arrest Date") || extractAfterLabel(html, "Date of Arrest");
+    result.arrestDate = toISODate(extractAfterLabel(html, "Arrest Date") || extractAfterLabel(html, "Date of Arrest"));
+
+    // Extract PBJ end date if present (format: "PBJ END DATE : MM/DD/YYYY")
+    const pbjMatch = html.match(/PBJ\s+END\s+DATE\s*:?\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
+    if (pbjMatch) {
+      result.probationEndDate = toISODate(pbjMatch[1]);
+      console.log(`[CaseSearch] PBJ End Date: ${result.probationEndDate}`);
+    }
 
     // Parse charges
     result.charges = parseCharges(html);
