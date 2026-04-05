@@ -207,8 +207,41 @@ function fillAttorneyBlock(form: any) {
 
 function fmtDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "";
+  // If already MM/DD/YYYY, return as-is
+  if (dateStr.match(/^\d{2}\/\d{2}\/\d{4}$/)) return dateStr;
   const d = new Date(dateStr + "T12:00:00");
   if (isNaN(d.getTime())) return dateStr || "";
+  return d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+}
+
+/** Convert "LAST, FIRST MIDDLE" to "First Middle Last" */
+function fmtDefendantName(name: string | null | undefined): string {
+  if (!name) return "";
+  const trimmed = name.trim();
+  // Check if name is in "LAST, FIRST MIDDLE" format
+  if (trimmed.includes(",")) {
+    const parts = trimmed.split(",").map(s => s.trim());
+    const lastName = parts[0];
+    const firstMiddle = parts.slice(1).join(" ").trim();
+    if (firstMiddle && lastName) {
+      // Title case each part
+      const titleCase = (s: string) => s.split(/\s+/).map(w => 
+        w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+      ).join(" ");
+      return `${titleCase(firstMiddle)} ${titleCase(lastName)}`;
+    }
+  }
+  return trimmed;
+}
+
+/** Format DOB as MM/DD/YYYY */
+function fmtDOB(dob: string | null | undefined): string {
+  if (!dob) return "";
+  // If already MM/DD/YYYY
+  if (dob.match(/^\d{2}\/\d{2}\/\d{4}$/)) return dob;
+  // Convert YYYY-MM-DD
+  const d = new Date(dob + "T12:00:00");
+  if (isNaN(d.getTime())) return dob;
   return d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
 }
 
@@ -234,8 +267,8 @@ async function fill072A(c: ExpungementCase): Promise<Uint8Array> {
   try { form.getDropdown("Court's City/County").select(c.county || ""); } catch {}
 
   set("Case Number", c.caseNumber || "");
-  set("Defendant's Name", c.defendantName || "");
-  set("Defendant's Date of Birth", c.defendantDOB || "");
+  set("Defendant's Name", fmtDefendantName(c.defendantName));
+  set("Defendant's Date of Birth", fmtDOB(c.defendantDOB));
   set("Date Arrested or Served", fmtDate(c.dispositionDate));
   set("Law Enforcement Agency", c.lawEnforcementAgency || "");
   set("City/County", c.county || "");
@@ -263,7 +296,7 @@ async function fill072A(c: ExpungementCase): Promise<Uint8Array> {
   }
 
   // Defendant info
-  set("Defendant Printed Name", c.defendantName || "");
+  set("Defendant Printed Name", fmtDefendantName(c.defendantName));
   set("Defendant Address", c.defendantAddress || "");
   set("Defendant City, State, Zip", cityStateZip(c.defendantCity, c.defendantState, c.defendantZip));
   set("Defendant Telephone Number", c.defendantPhone || "");
@@ -292,8 +325,8 @@ async function fill072B(c: ExpungementCase): Promise<Uint8Array> {
   try { form.getDropdown("Court's City/County").select(c.county || ""); } catch {}
 
   set("Case No", c.caseNumber || "");
-  set("Text24", c.defendantName || ""); // Defendant name
-  set("Text25", c.defendantDOB || ""); // DOB
+  set("Text24", fmtDefendantName(c.defendantName)); // Defendant name
+  set("Text25", fmtDOB(c.defendantDOB)); // DOB
   set("Text30", fmtDate(c.dispositionDate)); // Date arrested/served
   set("Law Enforcement Agency", c.lawEnforcementAgency || "");
   set("Maryland as a result of the following incident", c.incidentDescription || "");
@@ -317,7 +350,7 @@ async function fill072B(c: ExpungementCase): Promise<Uint8Array> {
   }
 
   // Defendant info
-  set("Printed Name_2", c.defendantName || "");
+  set("Printed Name_2", fmtDefendantName(c.defendantName));
   set("Address_2", c.defendantAddress || "");
   set("City State Zip_2", cityStateZip(c.defendantCity, c.defendantState, c.defendantZip));
   set("Telephone_2", c.defendantPhone || "");
@@ -346,8 +379,8 @@ async function fill072C(c: ExpungementCase): Promise<Uint8Array> {
   try { form.getDropdown("Court's City/County").select(c.county || ""); } catch {}
 
   set("Case No", c.caseNumber || "");
-  set("Defendant Name", c.defendantName || "");
-  set("Date of Birth", c.defendantDOB || "");
+  set("Defendant Name", fmtDefendantName(c.defendantName));
+  set("Date of Birth", fmtDOB(c.defendantDOB));
   set("Date", fmtDate(c.dispositionDate)); // Date arrested/served
   set("Law Enforcement Agency", c.lawEnforcementAgency || "");
   set("City/County of Law Enforcement Agency", c.county || "");
@@ -368,14 +401,14 @@ async function fill072C(c: ExpungementCase): Promise<Uint8Array> {
   }
 
   // Defendant info
-  set("Printed Name of Defendant", c.defendantName || "");
+  set("Printed Name of Defendant", fmtDefendantName(c.defendantName));
   set("Defendant Address", c.defendantAddress || "");
   set("City State Zip_2", cityStateZip(c.defendantCity, c.defendantState, c.defendantZip));
   set("Defendant Telephone", c.defendantPhone || "");
   set("Defendant Email Address", c.defendantEmail || "");
 
   // General Waiver section (built into 072C)
-  set("Name of Person Signing Waiver", c.defendantName || "");
+  set("Name of Person Signing Waiver", fmtDefendantName(c.defendantName));
   set("Law Enforcement Agency Name", c.lawEnforcementAgency || "");
   set("date of arrest, detention or confinement", fmtDate(c.dispositionDate));
 
@@ -401,8 +434,8 @@ async function fill072D(c: ExpungementCase): Promise<Uint8Array> {
   try { form.getDropdown("Court's City/County").select(c.county || ""); } catch {}
 
   set("Case Number", c.caseNumber || "");
-  set("Defendant Name", c.defendantName || "");
-  set("DOB", c.defendantDOB || "");
+  set("Defendant Name", fmtDefendantName(c.defendantName));
+  set("DOB", fmtDOB(c.defendantDOB));
   set("Date", fmtDate(c.dispositionDate));
   set("law enforcement agency", c.lawEnforcementAgency || "");
   set("City/County", c.county || "");
@@ -417,7 +450,7 @@ async function fill072D(c: ExpungementCase): Promise<Uint8Array> {
     check("possession of cannabis");
   }
 
-  set("Printed Name of Defendant", c.defendantName || "");
+  set("Printed Name of Defendant", fmtDefendantName(c.defendantName));
   set("Address of Defendant", c.defendantAddress || "");
   set("City, State, Zip_1", cityStateZip(c.defendantCity, c.defendantState, c.defendantZip));
   set("Defendant Telephone No", c.defendantPhone || "");
@@ -445,11 +478,11 @@ async function fill078(c: ExpungementCase): Promise<Uint8Array> {
   try { form.getDropdown("Court's City/County").select(c.county || ""); } catch {}
 
   set("Case No", c.caseNumber || "");
-  set("Defendant name", c.defendantName || "");
+  set("Defendant name", fmtDefendantName(c.defendantName));
   set("Defendant Address", c.defendantAddress || "");
   set("City, State, Zip", cityStateZip(c.defendantCity, c.defendantState, c.defendantZip));
   set("Defendant Home Telephone", c.defendantPhone || "");
-  set("Name Of Petitioner", c.defendantName || "");
+  set("Name Of Petitioner", fmtDefendantName(c.defendantName));
   set("Law Enforcement Agency", c.lawEnforcementAgency || "");
   set("Date of arrest, detention or confinement", fmtDate(c.dispositionDate));
 
