@@ -76,6 +76,18 @@ export function registerRoutes(server: Server, app: Express) {
     }
   });
 
+  // Debug endpoint - returns raw HTML from last lookup
+  app.get("/api/debug/last-html", (_req, res) => {
+    const fs = require("fs");
+    try {
+      const html = fs.readFileSync("/tmp/last_case_search.html", "utf-8");
+      res.setHeader("Content-Type", "text/html");
+      res.send(html);
+    } catch {
+      res.status(404).json({ error: "No debug HTML saved yet" });
+    }
+  });
+
   // Generate filled PDF form
   app.get("/api/cases/:id/form/:formType", async (req, res) => {
     const id = parseInt(req.params.id);
