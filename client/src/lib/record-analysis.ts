@@ -177,13 +177,18 @@ export function analyzeFullRecord(cases: CaseRecord[]): RecordAnalysisResult {
   const allCharges: ChargeAnalysis[] = [];
 
   for (const cas of cases) {
+    if (!cas.charges || !Array.isArray(cas.charges)) continue;
     for (let i = 0; i < cas.charges.length; i++) {
       const ch = cas.charges[i];
+      if (!ch) continue;
       const mapped = ch.disposition ? mapDisposition(ch.disposition) : "unknown";
       const isConv = mapped === "guilty";
-      const cannabis = isCannabisCharge(ch.description, ch.statute);
-      const offenseInfo = isConv ? lookupStatute(ch.statute, ch.description) : null;
-      const dispDate = parseDate(ch.dispositionDate);
+      const cannabis = isCannabisCharge(ch.description || '', ch.statute || '');
+      let offenseInfo: OffenseInfo | null = null;
+      try {
+        offenseInfo = isConv ? lookupStatute(ch.statute || '', ch.description || '') : null;
+      } catch { offenseInfo = null; }
+      const dispDate = parseDate(ch.dispositionDate || '');
 
       let waitYears: number | null = null;
       let waitStart: Date | null = null;
@@ -269,7 +274,8 @@ export function analyzeFullRecord(cases: CaseRecord[]): RecordAnalysisResult {
           statusReason = `Charge "${ineligibleConvictions[0].description}" is a guilty conviction that is NOT on the eligible offense list under CP § 10-110(a). This blocks expungement of the entire case under the unit rule.`;
         } else {
           // All convictions are eligible — find the longest wait
-          const maxWait = Math.max(...convictionCharges.map(c => c.waitYears || 0));
+          const waitArr = convictionCharges.map(c => c.waitYears || 5);
+          const maxWait = waitArr.length > 0 ? Math.max(...waitArr) : 5;
           const latestDispDate = convictionCharges.reduce((latest, c) => {
             const d = parseDate(c.dispositionDate);
             return d && (!latest || d > latest) ? d : latest;
@@ -338,11 +344,13 @@ export function analyzeFullRecord(cases: CaseRecord[]): RecordAnalysisResult {
     if (targetCase.overallStatus === "not_eligible") continue;
 
     // Find the waiting period window for this case
-    const targetCharges = targetCase.charges;
-    const targetDispDate = targetCharges[0] ? parseDate(targetCharges[0].dispositionDate) : null;
+    const targetCharges = targetCase.charges || [];
+    if (targetCharges.length === 0) continue;
+    const targetDispDate = targetCharges[0]?.dispositionDate ? parseDate(targetCharges[0].dispositionDate) : null;
     if (!targetDispDate) continue;
 
-    const maxWait = Math.max(...targetCharges.map(c => c.waitYears || 3));
+    const waits = targetCharges.map(c => c.waitYears || 3).filter(w => w > 0);
+    const maxWait = waits.length > 0 ? Math.max(...waits) : 3;
     const waitEnd = addYears(targetDispDate, maxWait);
 
     // Check if any OTHER case has a conviction that falls within this waiting period
