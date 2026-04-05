@@ -238,8 +238,9 @@ export async function lookupCase(caseNumber: string): Promise<CaseSearchResult> 
   // Clean up the case number — remove extra spaces, keep dashes
   const cleanNum = caseNumber.trim();
   
-  // Use the case number search page — works for ANY case number format
-  const searchUrl = `https://casesearch.courts.state.md.us/casesearch/inquiryByCaseNum.jis?caseId=${encodeURIComponent(cleanNum)}`;
+  // New portal URL format (launched March 14, 2026)
+  // Direct case detail: case-detail-page?caseId=XXXXX
+  const searchUrl = `https://casesearch.courts.state.md.us/casesearch/case-detail-page?caseId=${encodeURIComponent(cleanNum)}`;
 
   try {
     console.log(`[CaseSearch] Looking up: ${cleanNum}`);
@@ -268,14 +269,21 @@ export async function lookupCase(caseNumber: string): Promise<CaseSearchResult> 
       return { success: false, error: `Case "${cleanNum}" not found on Maryland Case Search. Check the case number and try again.`, charges: [] };
     }
 
-    // If the search returned a results list (multiple matches), try to find a link to the detail page
-    if (html.includes("inquiryDetail.jis")) {
-      // Extract the first detail link
-      const detailMatch = html.match(/href="(inquiryDetail\.jis\?[^"]+)"/i);
+    // If the search returned a results list or search page, try to find a link to the detail page
+    if (html.includes("case-detail-page") && !html.includes("Case Information") && !html.includes("Defendant Name")) {
+      const detailMatch = html.match(/href="([^"]*case-detail-page\?caseId=[^"]+)"/i);
       if (detailMatch) {
-        const detailUrl = `https://casesearch.courts.state.md.us/casesearch/${detailMatch[1].replace(/&amp;/g, '&')}`;
+        let detailUrl = detailMatch[1].replace(/&amp;/g, '&');
+        if (!detailUrl.startsWith('http')) {
+          detailUrl = `https://casesearch.courts.state.md.us${detailUrl.startsWith('/') ? '' : '/casesearch/'}${detailUrl}`;
+        }
         console.log(`[CaseSearch] Following detail link: ${detailUrl}`);
         html = await scrapflyFetch(detailUrl, apiKey);
+        // Save the detail page HTML too
+        try {
+          const fs = await import('fs');
+          fs.writeFileSync('/tmp/last_case_search.html', html);
+        } catch {}
       }
     }
 
