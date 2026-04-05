@@ -335,14 +335,18 @@ export async function lookupCase(caseNumber: string): Promise<CaseSearchResult> 
     // Parse charges
     result.charges = parseCharges(html);
 
-    // If we got nothing useful, the page structure may have changed
+    // If we got nothing useful, return a snippet of the HTML for debugging
     if (!result.defendant && result.charges.length === 0) {
-      // Save raw HTML for debugging  
       console.log(`[CaseSearch] Page parsed but no data extracted. HTML length: ${html.length}`);
-      console.log(`[CaseSearch] HTML snippet: ${html.substring(0, 500)}`);
+      // Extract a useful portion of the body content for debugging
+      const bodyMatch = html.match(/<body[^>]*>(.*)<\/body>/is);
+      const bodyText = bodyMatch ? bodyMatch[1] : html;
+      // Strip scripts and styles for readability
+      const cleaned = bodyText.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      console.log(`[CaseSearch] Cleaned text (first 2000): ${cleaned.substring(0, 2000)}`);
       return { 
         success: false, 
-        error: "Case page loaded but couldn't extract data. The page structure may have changed. Try using Manual Lookup instead.", 
+        error: "Case page loaded but couldn't extract data. Debug text: " + cleaned.substring(0, 1500), 
         charges: [],
       };
     }
