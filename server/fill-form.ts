@@ -12,6 +12,68 @@ const ATTORNEY_SIGNATURE = "/s/ Nirav Babu";
 const ATTORNEY_NUMBER = "0606130009";
 const FIRM_ADDRESS = "3030 Greenmount Ave, Suite 320";
 const FIRM_CITY_STATE_ZIP = "Baltimore, MD 21218";
+const ATTORNEY_PHONE = "301-971-4880";
+const ATTORNEY_EMAIL = "nirav@innovatelegalgroup.com";
+
+function todayDate(): string {
+  return new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+}
+
+/** Fill attorney block on any form — tries every known field name variant */
+function fillAttorneyBlock(form: any) {
+  const trySet = (name: string, val: string) => { try { form.getTextField(name).setText(val); } catch {} };
+  
+  // Signature line
+  trySet("Signature of Attorney", ATTORNEY_SIGNATURE);
+  trySet("Attorney Signature", ATTORNEY_SIGNATURE);
+  trySet("Signature", ATTORNEY_SIGNATURE);
+  
+  // Attorney number
+  trySet("Attorney Number", ATTORNEY_NUMBER);
+  trySet("Attorney No", ATTORNEY_NUMBER);
+  trySet("Atty Number", ATTORNEY_NUMBER);
+  
+  // Date (today's date)
+  trySet("Date", todayDate());
+  trySet("Attorney Date", todayDate());
+  trySet("Date_2", todayDate());
+  
+  // Printed name
+  trySet("Printed Name", ATTORNEY_NAME);
+  trySet("Attorney Printed Name", ATTORNEY_NAME);
+  trySet("Printed Name of Attorney", ATTORNEY_NAME);
+  trySet("Attorney Name", ATTORNEY_NAME);
+  
+  // Firm
+  trySet("Firm", FIRM_NAME);
+  trySet("Attorney Firm", FIRM_NAME);
+  trySet("Law Firm", FIRM_NAME);
+  
+  // Address
+  trySet("Address", FIRM_ADDRESS);
+  trySet("Attorney Address", FIRM_ADDRESS);
+  trySet("Address_1", FIRM_ADDRESS);
+  
+  // City State Zip
+  trySet("City, State, Zip", FIRM_CITY_STATE_ZIP);
+  trySet("Attorney City, State, Zip", FIRM_CITY_STATE_ZIP);
+  trySet("City State Zip", FIRM_CITY_STATE_ZIP);
+  trySet("City, State, Zip_1", FIRM_CITY_STATE_ZIP);
+  
+  // Phone
+  trySet("Telephone", ATTORNEY_PHONE);
+  trySet("Attorney Telephone", ATTORNEY_PHONE);
+  trySet("Telephone Number", ATTORNEY_PHONE);
+  trySet("Telephone_1", ATTORNEY_PHONE);
+  trySet("Phone", ATTORNEY_PHONE);
+  
+  // Email
+  trySet("E-mail", ATTORNEY_EMAIL);
+  trySet("Attorney E-mail", ATTORNEY_EMAIL);
+  trySet("Email", ATTORNEY_EMAIL);
+  trySet("Attorney Email", ATTORNEY_EMAIL);
+  trySet("E-mail_1", ATTORNEY_EMAIL);
+}
 
 function fmtDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "";
@@ -78,16 +140,7 @@ async function fill072A(c: ExpungementCase): Promise<Uint8Array> {
   set("Defendant E-mail", c.defendantEmail || "");
 
   // Attorney block
-  set("Attorney Printed Name", ATTORNEY_NAME);
-  try { form.getTextField("Signature of Attorney").setText(ATTORNEY_SIGNATURE); } catch {}
-  try { form.getTextField("Attorney Number").setText(ATTORNEY_NUMBER); } catch {}
-  try { form.getTextField("Attorney Address").setText(FIRM_ADDRESS); } catch {}
-  try { form.getTextField("Attorney City, State, Zip").setText(FIRM_CITY_STATE_ZIP); } catch {}
-  try { form.getTextField("Attorney Firm").setText(FIRM_NAME); } catch {}
-  try { form.getTextField("Attorney E-mail").setText(""); } catch {}
-  try { form.getTextField("Printed Name").setText(ATTORNEY_NAME); } catch {}
-  try { form.getTextField("Address").setText(FIRM_ADDRESS); } catch {}
-  try { form.getTextField("City, State, Zip").setText(FIRM_CITY_STATE_ZIP); } catch {}
+  fillAttorneyBlock(form);
 
   form.flatten();
   return await pdf.save();
@@ -138,6 +191,9 @@ async function fill072B(c: ExpungementCase): Promise<Uint8Array> {
   set("City State Zip_2", cityStateZip(c.defendantCity, c.defendantState, c.defendantZip));
   set("Telephone_2", c.defendantPhone || "");
   set("Email_2", c.defendantEmail || "");
+
+  // Attorney block
+  fillAttorneyBlock(form);
 
   form.flatten();
   return await pdf.save();
@@ -191,6 +247,9 @@ async function fill072C(c: ExpungementCase): Promise<Uint8Array> {
   set("Law Enforcement Agency Name", c.lawEnforcementAgency || "");
   set("date of arrest, detention or confinement", fmtDate(c.dispositionDate));
 
+  // Attorney block
+  fillAttorneyBlock(form);
+
   form.flatten();
   return await pdf.save();
 }
@@ -231,6 +290,9 @@ async function fill072D(c: ExpungementCase): Promise<Uint8Array> {
   set("Defendant Telephone No", c.defendantPhone || "");
   set("Defendant Email Address", c.defendantEmail || "");
 
+  // Attorney block
+  fillAttorneyBlock(form);
+
   form.flatten();
   return await pdf.save();
 }
@@ -256,6 +318,9 @@ async function fill078(c: ExpungementCase): Promise<Uint8Array> {
   set("Name Of Petitioner", c.defendantName || "");
   set("Law Enforcement Agency", c.lawEnforcementAgency || "");
   set("Date of arrest, detention or confinement", fmtDate(c.dispositionDate));
+
+  // Attorney block
+  fillAttorneyBlock(form);
 
   form.flatten();
   return await pdf.save();
