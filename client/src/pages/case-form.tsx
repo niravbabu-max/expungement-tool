@@ -802,89 +802,188 @@ export default function CaseForm() {
             TAB 4: PETITION
         ================================================================ */}
         <TabsContent value="petition">
-          <Card>
-            <CardHeader><CardTitle className="text-base">Petition & Filing</CardTitle></CardHeader>
-            <CardContent className="space-y-6">
-              {!eligResult ? (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-                  <AlertTriangle className="w-4 h-4 inline-block mr-1 mb-0.5" />
-                  Please complete the Eligibility analysis before generating the petition.
-                </div>
-              ) : eligResult.status === "not_eligible" ? (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-800">
-                  <XCircle className="w-4 h-4 inline-block mr-1 mb-0.5" />
-                  This case is not currently eligible for expungement. Review the Eligibility tab for details.
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
-                    <h3 className="font-semibold text-emerald-800 text-sm mb-2">Petition Ready to Generate</h3>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">Form:</span>{" "}
-                        <span className="font-semibold">CC-DC-CR-{eligResult.form || "072A"}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Filing Fee:</span>{" "}
-                        <span className="font-semibold">{eligResult.fee || "$0"}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Court:</span>{" "}
-                        <span className="font-semibold">{form.courtType} Court — {form.county}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Defendant:</span>{" "}
-                        <span className="font-semibold">{form.defendantName}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3">
-                    <Button className="bg-[#01696F] hover:bg-[#015258]" data-testid="button-print-petition" onClick={() => window.print()}>
-                      <Printer className="w-4 h-4 mr-2" /> Print Petition
-                    </Button>
-                    <Button variant="outline" className="text-[#01696F] border-[#01696F]" data-testid="button-download-petition">
-                      <Download className="w-4 h-4 mr-2" /> Download PDF
-                    </Button>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Case Summary / Filing Notes</Label>
-                    <Textarea
-                      value={form.unitRuleNotes || ""}
-                      onChange={(e) => set("unitRuleNotes", e.target.value)}
-                      rows={6}
-                      placeholder="Unit rule analysis and filing notes will appear here after Auto-Fill..."
-                      data-testid="textarea-unit-rule-notes"
-                    />
-                  </div>
-
-                  <div className="border rounded-lg p-4 bg-slate-50 space-y-2">
-                    <h4 className="font-semibold text-sm text-[#1B2A4A]">Filing Checklist</h4>
-                    <ul className="text-sm space-y-1 text-muted-foreground list-disc list-inside">
-                      <li>Complete all fields on the CC-DC-CR-{eligResult.form || "072A"} form</li>
-                      <li>Attach a copy of the charging document or docket sheet</li>
-                      {eligResult.fee && eligResult.fee !== "$0" && <li>Include the {eligResult.fee} filing fee (money order or cashier's check payable to Clerk of Circuit/District Court)</li>}
-                      <li>File in the {form.courtType} Court of {form.county} County</li>
-                      <li>Serve copies on all required agencies (State's Attorney, law enforcement agency of record)</li>
-                      {(form.dispositionType === "pbj" || form.dispositionType === "pbj_dui") && (
-                        <li>Attach proof of probation discharge</li>
-                      )}
-                    </ul>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <Button variant="outline" onClick={() => setTab("eligibility")}>Previous</Button>
-                <Button onClick={handleSave} className="bg-[#01696F] hover:bg-[#015258]" data-testid="button-save-petition">
-                  <FileCheck className="w-4 h-4 mr-2" /> Save Case
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+          <PetitionView caseData={form} eligResult={eligResult} caseId={isNew ? null : parseInt(params.id!)} />
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PetitionView — renders the petition preview and PDF download buttons
+// ---------------------------------------------------------------------------
+
+function PetitionView({ caseData, eligResult, caseId }: { caseData: FormData; eligResult: EligibilityResult | null; caseId: number | null }) {
+  let formType = eligResult?.form || caseData.selectedForm || "072A";
+  if (caseData.dispositionType === "guilty_cannabis" && formType === "072B") formType = "072D";
+  const isGuiltyForm = formType === "072B" || formType === "072D";
+  const isEarlyForm = formType === "072C";
+
+  const arrestLabel = caseData.arrestType === "arrested" ? "arrested" : caseData.arrestType === "summons" ? "served with a summons" : "served with a citation";
+
+  const API_BASE_PET = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
+
+  const handleDownloadForm = (ft: string) => {
+    if (!caseId) return;
+    window.open(`${API_BASE_PET}/api/cases/${caseId}/form/${ft}`, "_blank");
+  };
+
+  return (
+    <div>
+      <div className="space-y-3 mb-4 print:hidden">
+        <div className="flex items-center justify-between">
+          <h2 className="font-bold text-[#1B2A4A]">Petition — Form CC-DC-CR-{formType}</h2>
+        </div>
+
+        {caseId ? (
+          <div className="bg-[#E6F4F4] border border-[#01696F]/20 rounded-lg p-4">
+            <p className="font-semibold text-[#1B2A4A] text-sm mb-3">Download Official Court Forms (Auto-Filled)</p>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => handleDownloadForm(formType)} className="bg-[#01696F] hover:bg-[#015258]" data-testid="button-download-petition">
+                <Download className="w-4 h-4 mr-2" /> Petition Form CC-DC-CR-{formType}
+              </Button>
+              {isEarlyForm && (
+                <Button onClick={() => handleDownloadForm("078")} variant="outline" className="border-[#01696F] text-[#01696F]" data-testid="button-download-waiver">
+                  <Download className="w-4 h-4 mr-2" /> General Waiver CC-DC-CR-078
+                </Button>
+              )}
+              <Button onClick={() => window.print()} variant="outline" data-testid="button-print">
+                <Printer className="w-4 h-4 mr-2" /> Print Preview Below
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">These are the official Maryland court PDF forms with all fields and checkboxes auto-filled from this case's data. Print and file with the clerk.</p>
+          </div>
+        ) : (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+            Save the case first to enable official form downloads.
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white border rounded-lg p-8 shadow-sm print:shadow-none print:border-0 print:p-0 petition-page text-sm leading-relaxed" style={{ fontFamily: "'Times New Roman', serif" }}>
+        <div className="text-center mb-1 flex justify-between text-xs">
+          <span>☐ CIRCUIT COURT &nbsp;&nbsp; ☐ DISTRICT COURT OF MARYLAND FOR</span>
+        </div>
+        <div className="grid grid-cols-2 gap-4 text-xs mb-4 border-b pb-3">
+          <div><span className="text-muted-foreground">City/County: </span><strong>{caseData.county || "________________"}</strong></div>
+          <div><span className="text-muted-foreground">Case No.: </span><strong>{caseData.caseNumber || "________________"}</strong></div>
+          <div><span className="text-muted-foreground">Located at: </span>{"________________"}</div>
+          <div><span className="text-muted-foreground">Tracking #: </span>{"________________"}</div>
+          <div className="col-span-2"><span className="text-muted-foreground">Court Address: </span>{"________________"}</div>
+        </div>
+
+        <div className="text-center mb-4">
+          <p>STATE OF MARYLAND</p>
+          <p className="text-xs text-muted-foreground">vs.</p>
+          <p><strong>{caseData.defendantName || "________________"}</strong></p>
+          <p className="text-xs">DOB: {caseData.defendantDOB || "________________"}</p>
+        </div>
+
+        <h2 className="text-center font-bold mb-4 text-sm">
+          PETITION FOR EXPUNGEMENT OF RECORDS
+          {isGuiltyForm && <><br />(GUILTY DISPOSITION)</>}
+          {isEarlyForm && <><br />(LESS THAN 3 YEARS HAS PASSED SINCE DISPOSITION)</>}
+          {!isGuiltyForm && !isEarlyForm && <><br />(ACQUITTAL, DISMISSAL, PROBATION BEFORE JUDGMENT, NOLLE PROSEQUI, STET, OR NOT CRIMINALLY RESPONSIBLE)</>}
+        </h2>
+
+        <div className="space-y-3 text-sm">
+          <p>
+            1. On or about <u>{caseData.dispositionDate ? new Date(caseData.dispositionDate + "T12:00:00").toLocaleDateString() : "________________"}</u>, I was{" "}
+            <strong>{arrestLabel}</strong> by an officer of the{" "}
+            <u>{caseData.lawEnforcementAgency || "________________"}</u>{" "}
+            at <u>{caseData.incidentLocation || "________________"}</u>, Maryland, as a result of the following incident:{" "}
+            <u>{caseData.incidentDescription || "________________"}</u>.
+          </p>
+
+          <p>2. I was charged with the offense of <u>{caseData.offenseDescription || "________________"}</u>.</p>
+
+          <p>3. On or about <u>{caseData.dispositionDate ? new Date(caseData.dispositionDate + "T12:00:00").toLocaleDateString() : "________________"}</u>, the charge was disposed of as follows:</p>
+
+          <div className="ml-4 space-y-2">
+            {!isGuiltyForm && (
+              <>
+                <p>{caseData.dispositionType === "acquittal" ? "☑" : "☐"} I was acquitted/found not guilty of the charge.</p>
+                <p>{caseData.dispositionType === "dismissal" ? "☑" : "☐"} The charge was otherwise dismissed.</p>
+                <p>{caseData.dispositionType === "pbj_no_longer_crime" ? "☑" : "☐"} A probation before judgment was entered on the charge, but the conduct on which the charge was based is no longer a crime.</p>
+                <p>{caseData.dispositionType === "pbj" ? "☑" : "☐"} A probation before judgment was entered on the charge, and the conduct on which the charge was based is still a crime.</p>
+                <p>{caseData.dispositionType === "pbj_dui" ? "☑" : "☐"} A probation before judgment was entered on violation of Transportation Law Article § 21-902 (a) or (b).</p>
+                <p>{caseData.dispositionType === "nolle_prosequi" ? "☑" : "☐"} A nolle prosequi was entered.</p>
+                <p>{caseData.dispositionType === "stet" ? "☑" : "☐"} A stet was entered.</p>
+                <p>{caseData.dispositionType === "not_criminally_responsible" ? "☑" : "☐"} I was found not criminally responsible.</p>
+              </>
+            )}
+            {isGuiltyForm && (
+              <>
+                <p>{caseData.dispositionType === "guilty_no_longer_crime" ? "☑" : "☐"} The charge/offense, but the conduct on which the charge/offense is based is no longer a crime.</p>
+                <p>{caseData.dispositionType === "guilty_nuisance" ? "☑" : "☐"} A crime specified in Criminal Procedure Article, § 10-105(a)(9).</p>
+                <p>{caseData.dispositionType === "guilty_cannabis" ? "☑" : "☐"} Cannabis possession under Criminal Law Article § 5-601.</p>
+                <p>{caseData.dispositionType === "guilty_misdemeanor" ? "☑" : "☐"} A misdemeanor crime specified in Criminal Procedure Article, § 10-110.</p>
+                <p>{caseData.dispositionType === "guilty_felony" ? "☑" : "☐"} A felony crime specified in Criminal Procedure Article, § 10-110.</p>
+                <p>{caseData.dispositionType === "guilty_burglary_theft" ? "☑" : "☐"} First or second degree burglary or felony theft.</p>
+                <p>{caseData.dispositionType === "guilty_domestic" ? "☑" : "☐"} A domestically related crime under Criminal Procedure Article, § 6-233.</p>
+                <p>{caseData.dispositionType === "guilty_pardon" ? "☑" : "☐"} I was granted a full and unconditional pardon by the Governor.</p>
+              </>
+            )}
+          </div>
+
+          <p className="mt-4">I am not now a defendant in any pending criminal action.</p>
+          <p className="mt-4">I request the court to enter an Order for Expungement of all police and court records pertaining to the above {isGuiltyForm ? "conviction(s)" : "arrest, detention, confinement, and/or charges"}.</p>
+          <p className="mt-4">I solemnly affirm under the penalties of perjury that the contents of this petition are true to the best of my knowledge, information, and belief, and that the charge to which this petition relates is not part of a unit the expungement of which is precluded under Criminal Procedure Article, § 10-107.</p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-8 mt-8 text-xs">
+          <div className="space-y-3">
+            <p className="font-bold">Attorney</p>
+            <div className="border-b border-black h-6"></div>
+            <p className="text-muted-foreground">Signature of Attorney</p>
+            <p>Attorney Number: ________________</p>
+            <p>Date: ________________</p>
+            <p>Printed Name: ________________</p>
+            <p>Firm: Innovate Criminal Defense Lawyers</p>
+            <p>Address: ________________</p>
+            <p>Telephone: ________________</p>
+            <p>Email: ________________</p>
+          </div>
+          <div className="space-y-3">
+            <p className="font-bold">Defendant</p>
+            <div className="border-b border-black h-6"></div>
+            <p className="text-muted-foreground">Signature of Defendant</p>
+            <p>Date: ________________</p>
+            <p>Printed Name: {caseData.defendantName || "________________"}</p>
+            <p>Address: {caseData.defendantAddress || "________________"}</p>
+            <p>{caseData.defendantCity || "________________"}, {caseData.defendantState || "MD"} {caseData.defendantZip || "________________"}</p>
+            <p>Telephone: {caseData.defendantPhone || "________________"}</p>
+            <p>Email: {caseData.defendantEmail || "________________"}</p>
+          </div>
+        </div>
+
+        <p className="text-xs text-center text-muted-foreground mt-6">CC-DC-CR-{formType}</p>
+
+        {isEarlyForm && (
+          <div className="mt-8 pt-6 border-t">
+            <h3 className="text-center font-bold text-sm mb-4">GENERAL WAIVER AND RELEASE<br />(Criminal Procedure § 10-105)</h3>
+            <p className="text-sm">
+              I, <u>{caseData.defendantName || "________________"}</u>, release and forever discharge{" "}
+              <u>________________</u> (Complainant), and the{" "}
+              <u>{caseData.lawEnforcementAgency || "________________"}</u>, all of its officers, agents, and employees, and any and all other persons from any and all tort claims which I may have for wrongful conduct by reason of my arrest, detention, or confinement on or about{" "}
+              <u>{caseData.dispositionDate ? new Date(caseData.dispositionDate + "T12:00:00").toLocaleDateString() : "________________"}</u>.
+            </p>
+            <p className="text-sm mt-3">This General Waiver and Release is conditioned on the expungement of the record of my arrest, detention, or confinement and compliance with Code, Criminal Procedure Article, § 10-105, as applicable, and shall be void if these conditions are not met.</p>
+            <div className="grid grid-cols-2 gap-8 mt-6 text-xs">
+              <div className="space-y-2">
+                <div className="border-b border-black h-6"></div>
+                <p className="text-muted-foreground">Petitioner Signature</p>
+              </div>
+              <div className="space-y-2">
+                <div className="border-b border-black h-6"></div>
+                <p className="text-muted-foreground">Witness Signature</p>
+                <p>Printed Name of Witness: ________________</p>
+              </div>
+            </div>
+            <p className="text-xs text-center text-muted-foreground mt-4">CC-DC-CR-078</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
