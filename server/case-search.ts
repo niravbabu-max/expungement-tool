@@ -249,6 +249,15 @@ export async function lookupCase(caseNumber: string): Promise<CaseSearchResult> 
       return { success: false, error: "Empty response from Case Search. Try again.", charges: [] };
     }
 
+    // Save raw HTML for debugging
+    try {
+      const fs = await import('fs');
+      fs.writeFileSync('/tmp/last_case_search.html', html);
+      console.log(`[CaseSearch] Saved ${html.length} bytes of HTML to /tmp/last_case_search.html`);
+    } catch (e) {
+      console.log('[CaseSearch] Could not save debug HTML');
+    }
+
     // Check if still on CAPTCHA
     if (html.includes("captcha-delivery") || html.includes("Verification Required") || html.includes("geo.captcha-delivery.com")) {
       return { success: false, error: "CAPTCHA was not bypassed. Try again — Scrapfly sometimes needs a second attempt.", charges: [] };
