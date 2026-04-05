@@ -159,6 +159,20 @@ export function analyzeFullRecord(cases: CaseRecord[]): RecordAnalysisResult {
   const today = new Date();
   const warnings: string[] = [];
 
+  // Filter out cases with no charges
+  cases = cases.filter(c => c.charges && c.charges.length > 0);
+  if (cases.length === 0) {
+    return {
+      defendant: "Unknown",
+      totalCases: 0,
+      cases: [],
+      timeline: [],
+      summary: { eligible: 0, notEligible: 0, blocked: 0, needsReview: 0, autoExpunged: 0 },
+      filingPlan: [],
+      warnings: ["No cases with charge data were found. Check the case numbers and try again."],
+    };
+  }
+
   // Step 1: Analyze each charge individually
   const allCharges: ChargeAnalysis[] = [];
 
