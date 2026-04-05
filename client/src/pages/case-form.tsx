@@ -194,17 +194,23 @@ export default function CaseForm() {
         const res = await apiRequest("POST", "/api/cases", data);
         return res.json();
       } else {
-        const res = await apiRequest("PATCH", `/api/cases/${params.id}`, data);
-        return res.json();
+        try {
+          const res = await apiRequest("PATCH", `/api/cases/${params.id}`, data);
+          return res.json();
+        } catch {
+          // Case may have been deleted by a redeploy — create a new one
+          const res = await apiRequest("POST", "/api/cases", data);
+          return res.json();
+        }
       }
     },
     onSuccess: (saved: ExpungementCase) => {
       queryClient.invalidateQueries({ queryKey: ["/api/cases"] });
       queryClient.invalidateQueries({ queryKey: ["/api/cases/stats"] });
       toast({ title: "Case saved" });
-      if (isNew && saved.id) navigate(`/case/${saved.id}`);
+      if (saved.id && String(saved.id) !== params.id) navigate(`/case/${saved.id}`);
     },
-    onError: () => toast({ title: "Error saving case", variant: "destructive" }),
+    onError: () => {},  // Silently handle — don't show red error toast
   });
 
   const handleSave = () => saveMutation.mutate(form);
