@@ -8,7 +8,8 @@ import LoginPage from "./pages/login";
 import Dashboard from "./pages/dashboard";
 import CaseForm from "./pages/case-form";
 import NotFound from "./pages/not-found";
-import { LayoutDashboard, FileText, LogOut, Shield } from "lucide-react";
+import RecordAnalysis from "./pages/record-analysis";
+import { LayoutDashboard, FileText, LogOut, Shield, Users } from "lucide-react";
 
 function Sidebar() {
   const [location] = useLocation();
@@ -17,6 +18,7 @@ function Sidebar() {
   const navItems = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/case/new", label: "New Case", icon: FileText },
+    { href: "/record-analysis", label: "Full Record", icon: Users },
   ];
 
   return (
@@ -65,6 +67,7 @@ function AppLayout() {
           <Route path="/" component={Dashboard} />
           <Route path="/case/new" component={CaseForm} />
           <Route path="/case/:id" component={CaseForm} />
+          <Route path="/record-analysis" component={RecordAnalysis} />
           <Route component={NotFound} />
         </Switch>
       </main>
