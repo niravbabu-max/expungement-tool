@@ -159,6 +159,8 @@ function fillIncidentLocation(form: any, incidentLocation: string | null | undef
   trySet("Location", loc);
   trySet("City/County", loc);
   trySet("City, County", loc);
+  // Note: "Maryland as a result of the following incident" (072B) and similar
+  // are handled per-form since they may be location OR description depending on the form.
 }
 
 function fillCourtHeader(form: any, county: string | null | undefined, courtType: string | null | undefined, incidentLocation?: string | null) {
@@ -375,7 +377,10 @@ async function fill072B(c: ExpungementCase): Promise<Uint8Array> {
   set("Text30", fmtDate(c.dispositionDate)); // Date arrested/served
   set("Law Enforcement Agency", c.lawEnforcementAgency || "");
 
-  set("Maryland as a result of the following incident", c.incidentDescription || "");
+  // "Maryland as a result of the following incident" = the "at _____, Maryland" location field (confirmed from PDF field list)
+  // "Text26" = the incident description (what happened after "as a result of the following incident:")
+  set("Maryland as a result of the following incident", c.incidentLocation || c.county || "");
+  set("Text26", c.incidentDescription || "");
   set("2 I was charged with the offense of", c.offenseDescription || "");
   set("I was convicted found guilty of check all that apply making sure that the statement is true and", fmtDate(c.dispositionDate));
 
@@ -435,7 +440,8 @@ async function fill072C(c: ExpungementCase): Promise<Uint8Array> {
   set("Date", fmtDate(c.dispositionDate)); // Date arrested/served
   set("Law Enforcement Agency", c.lawEnforcementAgency || "");
   set("City/County of Law Enforcement Agency", c.county || "");
-  set("as the result of the following incident", c.incidentDescription || "");
+  // "as the result of the following incident" = location field ("at _____, Maryland") — same naming convention as 072B
+  set("as the result of the following incident", c.incidentLocation || c.county || "");
   set("charged with the offense of", c.offenseDescription || "");
   set("Date charge was disposed", fmtDate(c.dispositionDate));
 
@@ -494,7 +500,8 @@ async function fill072D(c: ExpungementCase): Promise<Uint8Array> {
   set("Date", fmtDate(c.dispositionDate));
   set("law enforcement agency", c.lawEnforcementAgency || "");
   set("City/County", c.county || "");
-  set("as a result of the following incident", c.incidentDescription || "");
+  // "as a result of the following incident" = location field ("at _____, Maryland") — same naming convention as 072B
+  set("as a result of the following incident", c.incidentLocation || c.county || "");
 
   if (c.arrestType === "arrested") check("Arrested");
   if (c.arrestType === "summons") check("served with summons");
