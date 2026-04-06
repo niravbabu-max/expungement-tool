@@ -318,9 +318,21 @@ async function fill072B(c: ExpungementCase): Promise<Uint8Array> {
   const set = (name: string, val: string) => { try { form.getTextField(name).setText(val); } catch {} };
   const check = (name: string) => { try { form.getCheckBox(name).check(); } catch {} };
 
-  // Court type
-  if (c.courtType === "Circuit") check("Check Box32");
-  if (c.courtType === "District") check("Check Box33");
+  // Log all field names on first use to help diagnose missing fields (check Railway logs)
+  if (process.env.DEBUG_PDF_FIELDS === "true") {
+    const fields = form.getFields();
+    console.log("[072B PDF fields]", fields.map((f: any) => `${f.constructor.name}: "${f.getName()}"`));
+  }
+
+  // Court type — try multiple checkbox name variants since PDF field names can vary
+  if (c.courtType === "Circuit") {
+    check("Check Box32"); check("Circuit Court"); check("Circuit"); check("CB_Circuit");
+    check("Check Box1"); check("CheckBox1"); check("court_circuit");
+  }
+  if (c.courtType === "District") {
+    check("Check Box33"); check("District Court"); check("District"); check("CB_District");
+    check("Check Box2"); check("CheckBox2"); check("court_district");
+  }
 
   try { form.getDropdown("Court's City/County").select(c.county || ""); } catch {}
 
@@ -329,6 +341,7 @@ async function fill072B(c: ExpungementCase): Promise<Uint8Array> {
   set("Text25", fmtDOB(c.defendantDOB)); // DOB
   set("Text30", fmtDate(c.dispositionDate)); // Date arrested/served
   set("Law Enforcement Agency", c.lawEnforcementAgency || "");
+
   set("Maryland as a result of the following incident", c.incidentDescription || "");
   set("2 I was charged with the offense of", c.offenseDescription || "");
   set("I was convicted found guilty of check all that apply making sure that the statement is true and", fmtDate(c.dispositionDate));
@@ -356,9 +369,24 @@ async function fill072B(c: ExpungementCase): Promise<Uint8Array> {
   set("Telephone_2", c.defendantPhone || "");
   set("Email_2", c.defendantEmail || "");
 
-  // Attorney block
+  // Attorney block + court header (sets court address)
   fillCourtHeader(form, c.county, c.courtType, c.incidentLocation);
   fillAttorneyBlock(form);
+
+  // "at _____, Maryland" — incident location (city/county where arrest occurred)
+  // Set AFTER fillCourtHeader so we override any conflicting field it may have set.
+  // Try all plausible PDF field name variants for the 072B form.
+  const incLoc = c.incidentLocation || c.county || "";
+  set("Text31", incLoc);
+  set("Text32", incLoc);
+  set("at", incLoc);
+  set("at 1", incLoc);
+  set("Located at", incLoc);
+  set("Incident Location", incLoc);
+  set("City County of Incident", incLoc);
+  set("City/County of Incident", incLoc);
+  set("location", incLoc);
+  set("Location", incLoc);
 
   form.flatten();
   return await pdf.save();
