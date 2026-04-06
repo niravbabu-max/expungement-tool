@@ -131,12 +131,16 @@ function todayDate(): string {
 function fillCourtTypeCheckboxes(form: any, courtType: string | null | undefined) {
   const check = (name: string) => { try { form.getCheckBox(name).check(); } catch {} };
   if (courtType === "Circuit") {
-    check("Circuit Court"); check("Circuit"); check("CB_Circuit");
-    check("Check Box32"); check("Check Box1"); check("CheckBox1"); check("court_circuit");
+    // Check Box32 confirmed as Circuit Court checkbox in 072B (from Railway debug log)
+    check("Check Box32");
+    check("Circuit Court"); check("Circuit"); check("CB_Circuit"); check("court_circuit");
+    // NOTE: "Check Box1" removed — in 072B it maps to a disposition checkbox, NOT circuit court
   }
   if (courtType === "District") {
-    check("District Court"); check("District court"); check("District"); check("CB_District");
-    check("Check Box33"); check("Check Box2"); check("CheckBox2"); check("court_district");
+    // Check Box33 confirmed as District Court checkbox in 072B (from Railway debug log)
+    check("Check Box33");
+    check("District Court"); check("District court"); check("District"); check("CB_District"); check("court_district");
+    // NOTE: "Check Box2" removed as precaution — use only confirmed field names
   }
 }
 
