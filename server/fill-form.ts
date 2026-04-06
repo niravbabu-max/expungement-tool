@@ -127,6 +127,40 @@ function todayDate(): string {
 }
 
 /** Fill court header fields (address, phone) based on county */
+/** Try all known checkbox name variants for Circuit/District court type header */
+function fillCourtTypeCheckboxes(form: any, courtType: string | null | undefined) {
+  const check = (name: string) => { try { form.getCheckBox(name).check(); } catch {} };
+  if (courtType === "Circuit") {
+    check("Circuit Court"); check("Circuit"); check("CB_Circuit");
+    check("Check Box32"); check("Check Box1"); check("CheckBox1"); check("court_circuit");
+  }
+  if (courtType === "District") {
+    check("District Court"); check("District court"); check("District"); check("CB_District");
+    check("Check Box33"); check("Check Box2"); check("CheckBox2"); check("court_district");
+  }
+}
+
+/** Fill the "at _____, Maryland" incident location field — try all known name variants.
+ *  Must be called AFTER fillCourtHeader to avoid being overwritten. */
+function fillIncidentLocation(form: any, incidentLocation: string | null | undefined, county: string | null | undefined) {
+  const trySet = (name: string, val: string) => { try { form.getTextField(name).setText(val); } catch {} };
+  const loc = incidentLocation || county || "";
+  if (!loc) return;
+  trySet("at", loc);
+  trySet("at 1", loc);
+  trySet("Located at", loc);
+  trySet("Text31", loc);
+  trySet("Text32", loc);
+  trySet("Text33", loc);
+  trySet("Incident Location", loc);
+  trySet("City County of Incident", loc);
+  trySet("City/County of Incident", loc);
+  trySet("location", loc);
+  trySet("Location", loc);
+  trySet("City/County", loc);
+  trySet("City, County", loc);
+}
+
 function fillCourtHeader(form: any, county: string | null | undefined, courtType: string | null | undefined, incidentLocation?: string | null) {
   const court = getCourtInfo(county, courtType);
   const trySet = (name: string, val: string) => { try { form.getTextField(name).setText(val); } catch {} };
@@ -259,9 +293,12 @@ async function fill072A(c: ExpungementCase): Promise<Uint8Array> {
   const set = (name: string, val: string) => { try { form.getTextField(name).setText(val); } catch {} };
   const check = (name: string) => { try { form.getCheckBox(name).check(); } catch {} };
 
-  // Court type
-  if (c.courtType === "Circuit") check("Circuit Court");
-  if (c.courtType === "District") check("District Court");
+  if (process.env.DEBUG_PDF_FIELDS === "true") {
+    console.log("[072A PDF fields]", form.getFields().map((f: any) => `${f.constructor.name}: "${f.getName()}"`));
+  }
+
+  // Court type — use shared helper for all checkbox name variants
+  fillCourtTypeCheckboxes(form, c.courtType);
 
   // Dropdown for county
   try { form.getDropdown("Court's City/County").select(c.county || ""); } catch {}
@@ -305,6 +342,7 @@ async function fill072A(c: ExpungementCase): Promise<Uint8Array> {
   // Attorney block
   fillCourtHeader(form, c.county, c.courtType, c.incidentLocation);
   fillAttorneyBlock(form);
+  fillIncidentLocation(form, c.incidentLocation, c.county);
 
   form.flatten();
   return await pdf.save();
@@ -324,15 +362,10 @@ async function fill072B(c: ExpungementCase): Promise<Uint8Array> {
     console.log("[072B PDF fields]", fields.map((f: any) => `${f.constructor.name}: "${f.getName()}"`));
   }
 
-  // Court type — try multiple checkbox name variants since PDF field names can vary
-  if (c.courtType === "Circuit") {
-    check("Check Box32"); check("Circuit Court"); check("Circuit"); check("CB_Circuit");
-    check("Check Box1"); check("CheckBox1"); check("court_circuit");
-  }
-  if (c.courtType === "District") {
-    check("Check Box33"); check("District Court"); check("District"); check("CB_District");
-    check("Check Box2"); check("CheckBox2"); check("court_district");
-  }
+  // Court type — use shared helper; 072B also tries its specific Check Box32/33 names
+  fillCourtTypeCheckboxes(form, c.courtType);
+  if (c.courtType === "Circuit") { try { form.getCheckBox("Check Box32").check(); } catch {} }
+  if (c.courtType === "District") { try { form.getCheckBox("Check Box33").check(); } catch {} }
 
   try { form.getDropdown("Court's City/County").select(c.county || ""); } catch {}
 
@@ -373,20 +406,8 @@ async function fill072B(c: ExpungementCase): Promise<Uint8Array> {
   fillCourtHeader(form, c.county, c.courtType, c.incidentLocation);
   fillAttorneyBlock(form);
 
-  // "at _____, Maryland" — incident location (city/county where arrest occurred)
-  // Set AFTER fillCourtHeader so we override any conflicting field it may have set.
-  // Try all plausible PDF field name variants for the 072B form.
-  const incLoc = c.incidentLocation || c.county || "";
-  set("Text31", incLoc);
-  set("Text32", incLoc);
-  set("at", incLoc);
-  set("at 1", incLoc);
-  set("Located at", incLoc);
-  set("Incident Location", incLoc);
-  set("City County of Incident", incLoc);
-  set("City/County of Incident", incLoc);
-  set("location", incLoc);
-  set("Location", incLoc);
+  // Incident location — set AFTER fillCourtHeader so it takes priority
+  fillIncidentLocation(form, c.incidentLocation, c.county);
 
   form.flatten();
   return await pdf.save();
@@ -400,9 +421,11 @@ async function fill072C(c: ExpungementCase): Promise<Uint8Array> {
   const set = (name: string, val: string) => { try { form.getTextField(name).setText(val); } catch {} };
   const check = (name: string) => { try { form.getCheckBox(name).check(); } catch {} };
 
-  // Court type
-  if (c.courtType === "Circuit") check("Circuit Court");
-  if (c.courtType === "District") check("District Court");
+  if (process.env.DEBUG_PDF_FIELDS === "true") {
+    console.log("[072C PDF fields]", form.getFields().map((f: any) => `${f.constructor.name}: "${f.getName()}"`));
+  }
+
+  fillCourtTypeCheckboxes(form, c.courtType);
 
   try { form.getDropdown("Court's City/County").select(c.county || ""); } catch {}
 
@@ -443,6 +466,7 @@ async function fill072C(c: ExpungementCase): Promise<Uint8Array> {
   // Attorney block
   fillCourtHeader(form, c.county, c.courtType, c.incidentLocation);
   fillAttorneyBlock(form);
+  fillIncidentLocation(form, c.incidentLocation, c.county);
 
   form.flatten();
   return await pdf.save();
@@ -456,8 +480,11 @@ async function fill072D(c: ExpungementCase): Promise<Uint8Array> {
   const set = (name: string, val: string) => { try { form.getTextField(name).setText(val); } catch {} };
   const check = (name: string) => { try { form.getCheckBox(name).check(); } catch {} };
 
-  if (c.courtType === "Circuit") check("Circuit Court");
-  if (c.courtType === "District") check("District court");
+  if (process.env.DEBUG_PDF_FIELDS === "true") {
+    console.log("[072D PDF fields]", form.getFields().map((f: any) => `${f.constructor.name}: "${f.getName()}"`));
+  }
+
+  fillCourtTypeCheckboxes(form, c.courtType);
 
   try { form.getDropdown("Court's City/County").select(c.county || ""); } catch {}
 
@@ -487,6 +514,7 @@ async function fill072D(c: ExpungementCase): Promise<Uint8Array> {
   // Attorney block
   fillCourtHeader(form, c.county, c.courtType, c.incidentLocation);
   fillAttorneyBlock(form);
+  fillIncidentLocation(form, c.incidentLocation, c.county);
 
   form.flatten();
   return await pdf.save();
@@ -500,8 +528,11 @@ async function fill078(c: ExpungementCase): Promise<Uint8Array> {
   const set = (name: string, val: string) => { try { form.getTextField(name).setText(val); } catch {} };
   const check = (name: string) => { try { form.getCheckBox(name).check(); } catch {} };
 
-  if (c.courtType === "Circuit") check("Circuit Court");
-  if (c.courtType === "District") check("District Court");
+  if (process.env.DEBUG_PDF_FIELDS === "true") {
+    console.log("[078 PDF fields]", form.getFields().map((f: any) => `${f.constructor.name}: "${f.getName()}"`));
+  }
+
+  fillCourtTypeCheckboxes(form, c.courtType);
 
   try { form.getDropdown("Court's City/County").select(c.county || ""); } catch {}
 
@@ -517,6 +548,7 @@ async function fill078(c: ExpungementCase): Promise<Uint8Array> {
   // Attorney block
   fillCourtHeader(form, c.county, c.courtType, c.incidentLocation);
   fillAttorneyBlock(form);
+  fillIncidentLocation(form, c.incidentLocation, c.county);
 
   form.flatten();
   return await pdf.save();
