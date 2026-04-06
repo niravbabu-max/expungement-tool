@@ -311,7 +311,7 @@ async function fill072A(c: ExpungementCase): Promise<Uint8Array> {
   set("Date Arrested or Served", fmtDate(c.dispositionDate));
   set("Law Enforcement Agency", c.lawEnforcementAgency || "");
   set("City/County", c.county || "");
-  set("List the Incident", c.incidentDescription || "");
+  set("List the Incident", c.incidentDescription || c.offenseDescription || "");
   set("List the Offense you were charged with", c.offenseDescription || "");
   set("Date the charge was Disposed of", fmtDate(c.dispositionDate));
 
@@ -378,9 +378,9 @@ async function fill072B(c: ExpungementCase): Promise<Uint8Array> {
   set("Law Enforcement Agency", c.lawEnforcementAgency || "");
 
   // "Maryland as a result of the following incident" = the "at _____, Maryland" location field (confirmed from PDF field list)
-  // "Text26" = the incident description (what happened after "as a result of the following incident:")
+  // "Text26" = the incident description — falls back to offense description if staff didn't enter one
   set("Maryland as a result of the following incident", c.incidentLocation || c.county || "");
-  set("Text26", c.incidentDescription || "");
+  set("Text26", c.incidentDescription || c.offenseDescription || "");
   set("Text27", fmtDate(c.dispositionDate)); // "On or about ___" conviction date (paragraph 3)
   set("2 I was charged with the offense of", c.offenseDescription || "");
   set("I was convicted found guilty of check all that apply making sure that the statement is true and", c.offenseDescription || ""); // conviction offense description
