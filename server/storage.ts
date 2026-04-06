@@ -2,8 +2,20 @@ import { expungementCases, type ExpungementCase, type InsertCase } from "@shared
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import { eq, sql } from "drizzle-orm";
+import path from "path";
+import fs from "fs";
 
-const sqlite = new Database("data.db");
+// Use DATABASE_PATH env var for persistent storage (Railway volume).
+// Falls back to local data.db for development.
+const DB_PATH = process.env.DATABASE_PATH || "data.db";
+
+// Ensure the directory exists (needed when Railway volume is first mounted)
+const dbDir = path.dirname(path.resolve(DB_PATH));
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+const sqlite = new Database(DB_PATH);
 const db = drizzle(sqlite);
 
 export interface IStorage {
