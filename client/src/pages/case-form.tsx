@@ -112,10 +112,13 @@ export default function CaseForm() {
       if (data.defendant) {
         if (data.defendant.name) updates.defendantName = data.defendant.name;
         if (data.defendant.dob) updates.defendantDOB = data.defendant.dob;
-        if (data.defendant.address) updates.defendantAddress = data.defendant.address;
-        if (data.defendant.city) updates.defendantCity = data.defendant.city;
-        if (data.defendant.state) updates.defendantState = data.defendant.state;
-        if (data.defendant.zip) updates.defendantZip = data.defendant.zip;
+        // Address intentionally NOT auto-filled — court records store the attorney of record's
+        // address, not the client's current address. Staff must enter the client's current
+        // mailing address manually before generating the petition.
+        updates.defendantAddress = "";
+        updates.defendantCity = "";
+        updates.defendantState = "MD";
+        updates.defendantZip = "";
       }
       if (data.caseInfo) {
         if (data.caseInfo.courtType) updates.courtType = data.caseInfo.courtType;
@@ -318,7 +321,11 @@ export default function CaseForm() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2"><Label>Full Name</Label><Input value={form.defendantName} onChange={(e) => set("defendantName", e.target.value)} data-testid="input-defendant-name" /></div>
                 <div className="space-y-2"><Label>Date of Birth</Label><Input type="date" value={form.defendantDOB || ""} onChange={(e) => set("defendantDOB", e.target.value)} data-testid="input-dob" /></div>
-                <div className="space-y-2 md:col-span-2"><Label>Address</Label><Input value={form.defendantAddress || ""} onChange={(e) => set("defendantAddress", e.target.value)} /></div>
+                <div className="md:col-span-2 flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-md px-3 py-2 text-sm text-amber-800">
+                  <span className="text-amber-500 mt-0.5">⚠️</span>
+                  <span><strong>Enter client's current mailing address.</strong> Court records store the attorney's address — do not use what was in the case file. Ask the client for their current address and enter it here.</span>
+                </div>
+                <div className="space-y-2 md:col-span-2"><Label>Address <span className="text-red-500 text-xs font-normal">(current — required for petition)</span></Label><Input placeholder="Client's current street address" value={form.defendantAddress || ""} onChange={(e) => set("defendantAddress", e.target.value)} /></div>
                 <div className="space-y-2"><Label>City</Label><Input value={form.defendantCity || ""} onChange={(e) => set("defendantCity", e.target.value)} /></div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2"><Label>State</Label><Input value={form.defendantState || "MD"} onChange={(e) => set("defendantState", e.target.value)} /></div>
