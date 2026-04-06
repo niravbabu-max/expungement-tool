@@ -159,8 +159,8 @@ function fillIncidentLocation(form: any, incidentLocation: string | null | undef
   trySet("Location", loc);
   trySet("City/County", loc);
   trySet("City, County", loc);
-  // Note: "Maryland as a result of the following incident" (072B) and similar
-  // are handled per-form since they may be location OR description depending on the form.
+  // 072B confirmed field name (from Railway debug log 2026-04-06)
+  trySet("Maryland as a result of the following incident", loc);
 }
 
 function fillCourtHeader(form: any, county: string | null | undefined, courtType: string | null | undefined, incidentLocation?: string | null) {
@@ -381,8 +381,9 @@ async function fill072B(c: ExpungementCase): Promise<Uint8Array> {
   // "Text26" = the incident description (what happened after "as a result of the following incident:")
   set("Maryland as a result of the following incident", c.incidentLocation || c.county || "");
   set("Text26", c.incidentDescription || "");
+  set("Text27", fmtDate(c.dispositionDate)); // "On or about ___" conviction date (paragraph 3)
   set("2 I was charged with the offense of", c.offenseDescription || "");
-  set("I was convicted found guilty of check all that apply making sure that the statement is true and", fmtDate(c.dispositionDate));
+  set("I was convicted found guilty of check all that apply making sure that the statement is true and", c.offenseDescription || ""); // conviction offense description
 
   // Arrest type
   if (c.arrestType === "arrested") check("Check Box36");
